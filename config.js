@@ -26,7 +26,7 @@ export const SITE = {
 
 // 4) رفع الفيديوهات (Cloudinary — مجاني 25GB). اتركها فارغة لإخفاء زر الرفع.
 export const UPLOAD = {
-  cloudName: "",      // اسم الحساب في Cloudinary
-  videoPreset: "",    // اسم Upload preset (Unsigned)
+  cloudName: "aqchjgsw",           // اسم الحساب في Cloudinary
+  videoPreset: "sabiqeen_videos",  // اسم Upload preset (Unsigned)
   maxMB: 100          // أقصى حجم للفيديو في الخطة المجانية
 };
