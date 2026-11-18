@@ -52,6 +52,12 @@ service cloud.firestore {
         || (signedIn() && resource.data.uid == request.auth.uid && resource.data.status == 'pending');
     }
 
+    // رسائل اتصل بنا: أي زائر يرسل، والمدير فقط يقرأ ويحذف
+    match /messages/{id} {
+      allow create: if txt('name', 80) && txt('email', 120) && txt('text', 3000) && txt('subject', 40);
+      allow read, delete: if isAdmin();
+    }
+
     // التعليقات والردود
     match /{coll}/{docId}/comments/{cid} {
       allow read: if coll in ['posts', 'audios', 'books', 'threads', 'questions'];

@@ -1,5 +1,6 @@
 import { firebaseConfig, SITE, ADMIN_EMAILS } from "./config.js";
 import { I18N } from "./i18n.js";
+import { PAGES } from "./pages.js";
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import {
   getAuth, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signInWithRedirect,
@@ -99,7 +100,7 @@ function renderShell() {
   document.documentElement.dir = lang === "ar" ? "rtl" : "ltr";
   document.title = siteName();
   $("#brandName").textContent = siteName();
-  $("#footer").innerHTML = `<b>${esc(siteName())}</b> — ${esc(SITE.tagline[lang])}<br><small>© ${new Date().getFullYear()} ${t("footer")}</small>`;
+  $("#footer").innerHTML = `<b>${esc(siteName())}</b> — ${esc(SITE.tagline[lang])}<nav class="foot-links"><a href="#/about">${t("aboutUs")}</a><a href="#/contact">${t("contactUs")}</a><a href="#/terms">${t("terms")}</a><a href="#/privacy">${t("privacy")}</a></nav><small>© ${new Date().getFullYear()} ${t("footer")}</small>`;
   const links = [["home", "#/"], ["posts", "#/posts"], ["audio", "#/audio"], ["books", "#/books"], ["forum", "#/forum"], ["fatwa", "#/fatwa"]];
   $("#nav").innerHTML = links.map(([k, h]) => `<a href="${h}" data-k="${k}">${t(k)}</a>`).join("") +
     `<a href="#/ask" class="nav-ask">${t("ask")}</a>` +
@@ -141,6 +142,8 @@ async function route() {
         case "admin": return pageAdmin();
         case "new": return pageNew(id);
         case "edit": return pageNew(id, extra);
+        case "about": case "terms": case "privacy": return pageStatic(p);
+        case "contact": return pageContact();
         default: main().innerHTML = `<div class="empty">${t("notFound")}</div>`;
       }
     })();
@@ -498,6 +501,30 @@ async function pageNew(type, editId) {
   };
 }
 
+// ---------- static pages ----------
+function pageStatic(key) {
+  const P = PAGES[key][lang] || PAGES[key].ar;
+  document.title = P.title + " | " + siteName();
+  main().innerHTML = `<article class="card narrow article static"><h1>${P.title}</h1><div class="prose">${P.html}</div></article>`;
+}
+function pageContact() {
+  main().innerHTML = `<div class="card narrow"><h1>${t("contactUs")}</h1><p class="muted">${t("contactNote")}</p>
+    <form class="form" id="ctForm">
+      <label>${t("name")}<input name="name" required maxlength="80" value="${esc(user ? myName() : "")}"></label>
+      <label>${t("email")}<input name="email" type="email" required maxlength="120" dir="ltr" value="${esc(user?.email || "")}"></label>
+      <label>${t("subject")}<select name="subject">${["general", "suggestion", "problem", "deleteAccount", "joinSheikh"].map(k => `<option value="${k}">${t("subj_" + k)}</option>`).join("")}</select></label>
+      <label>${t("message")}<textarea name="text" rows="7" required maxlength="3000"></textarea></label>
+      <button class="btn wide">${t("send")}</button></form></div>`;
+  $("#ctForm").onsubmit = async e => {
+    e.preventDefault();
+    const f = Object.fromEntries(new FormData(e.target)), btn = $("button", e.target); btn.disabled = true;
+    try {
+      await addDoc(collection(db, "messages"), { name: f.name.trim(), email: f.email.trim(), subject: f.subject, text: f.text.trim(), uid: user?.uid || "", createdAt: serverTimestamp() });
+      main().innerHTML = `<div class="card narrow"><h1>${t("contactUs")}</h1><p>${t("msgSent")}</p><a class="btn" href="#/">${t("home")}</a></div>`;
+    } catch (err) { toast(errMsg(err), true); btn.disabled = false; }
+  };
+}
+
 // ---------- profile ----------
 async function pageProfile() {
   if (!requireLogin()) return;
@@ -552,12 +579,24 @@ async function pagePanel() {
 }
 
 // ---------- admin ----------
+async function loadInbox() {
+  const box = $("#inbox"); if (!box) return;
+  const msgs = await latest("messages", 200);
+  box.innerHTML = msgs.length ? msgs.map(m => `<div class="item msg"><div class="cmeta"><b>${esc(m.name)}</b><span dir="ltr">${esc(m.email)}</span><span class="tag">${t("subj_" + m.subject)}</span><span>${fmtDate(m.createdAt)}</span>
+    <button class="link danger" data-mdel="${m.id}">${t("delete")}</button></div><div class="ctext">${nl(m.text)}</div></div>`).join("") : `<div class="empty sm">${t("empty")}</div>`;
+  $$("[data-mdel]", box).forEach(b => b.onclick = async () => {
+    if (!confirm(t("confirmDelete"))) return;
+    try { await deleteDoc(doc(db, "messages", b.dataset.mdel)); loadInbox(); } catch (e) { toast(errMsg(e), true); }
+  });
+}
 async function pageAdmin() {
   if (!requireLogin()) return; if (!isAdmin()) return denied();
   const users = await latest("users", 500);
   main().innerHTML = `<div class="page-head"><h1>${t("admin")} — ${t("users")} (${users.length})</h1></div>
     <div class="toolbar"><input class="search" type="search" placeholder="${t("searchUsers")}"></div>
-    <div class="card"><table class="tbl"><tbody id="urows"></tbody></table></div>`;
+    <div class="card"><table class="tbl"><tbody id="urows"></tbody></table></div>
+    <h2 class="sub">${t("inbox")}</h2><div id="inbox" class="list"></div>`;
+  loadInbox();
   const draw = q => {
     const effRole = u => ADMIN_EMAILS.map(e => e.toLowerCase()).includes((u.email || "").toLowerCase()) ? "admin" : (u.role || "user");
     $("#urows").innerHTML = users.filter(u => !q || (u.name + " " + u.email).toLowerCase().includes(q)).map(u => {

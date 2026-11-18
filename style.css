@@ -190,3 +190,13 @@ footer b{font-family:"Amiri",serif;color:var(--gold-l);font-size:1.2rem}
 }
 @media (min-width:961px){ #nav .nav-staff{display:none} }
 .badge.banned{background:var(--red)}
+
+.foot-links{display:flex;justify-content:center;gap:18px;flex-wrap:wrap;margin:10px 0 6px}
+.foot-links a{color:#d6e4df;font-size:14px}
+.foot-links a:hover{color:var(--gold-l)}
+footer small{display:block}
+.static h3{margin-top:22px;color:var(--teal)}
+.static ul,.static ol{padding-inline-start:22px}
+.static li{margin-bottom:6px}
+.note{background:var(--gold-l);border-radius:10px;padding:10px 14px;color:#6b5113}
+.msg .cmeta span[dir]{color:var(--muted)}
