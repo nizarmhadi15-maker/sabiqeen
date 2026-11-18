@@ -135,8 +135,8 @@ function errMsg(e) {
 }
 function requireLogin() {
   if (user) return true;
-  sessionStorage.setItem("after", location.hash);
-  location.hash = "#/login";
+  sessionStorage.setItem("after", location.pathname);
+  go("/login");
   return false;
 }
 const main = () => $("#app");
@@ -162,17 +162,17 @@ function renderShell() {
   document.documentElement.dir = lang === "ar" ? "rtl" : "ltr";
   document.title = siteName();
   $("#brandName").textContent = siteName();
-  $("#footer").innerHTML = `<b>${esc(siteName())}</b> — ${esc(SITE.tagline[lang])}<nav class="foot-links"><a href="#/about">${t("aboutUs")}</a><a href="#/donate">${t("donate")}</a><a href="#/contact">${t("contactUs")}</a><a href="#/terms">${t("terms")}</a><a href="#/privacy">${t("privacy")}</a></nav><small>© ${new Date().getFullYear()} ${t("footer")}</small>`;
-  const links = [["home", "#/"], ["posts", "#/posts"], ["audio", "#/audio"], ["videos", "#/videos"], ["books", "#/books"], ["forum", "#/forum"], ["fatwa", "#/fatwa"]];
+  $("#footer").innerHTML = `<b>${esc(siteName())}</b> — ${esc(SITE.tagline[lang])}<nav class="foot-links"><a href="/about">${t("aboutUs")}</a><a href="/donate">${t("donate")}</a><a href="/contact">${t("contactUs")}</a><a href="/terms">${t("terms")}</a><a href="/privacy">${t("privacy")}</a></nav><small>© ${new Date().getFullYear()} ${t("footer")}</small>`;
+  const links = [["home", "/"], ["posts", "/posts"], ["audio", "/audio"], ["videos", "/videos"], ["books", "/books"], ["forum", "/forum"], ["fatwa", "/fatwa"]];
   $("#nav").innerHTML = links.map(([k, h]) => `<a href="${h}" data-k="${k}">${t(k)}</a>`).join("") +
-    `<a href="#/ask" class="nav-ask">${t("ask")}</a>` + `<a href="#/donate" class="nav-donate" data-k="donate">${t("donate")}</a>` +
-    (user && isSheikh() ? `<a href="#/panel" class="nav-staff" data-k="panel">${t("panel")}</a>` : "") +
-    (user && isAdmin() ? `<a href="#/admin" class="nav-staff" data-k="admin">${t("admin")}</a><a href="#/stats" class="nav-staff" data-k="stats">${t("stats")}</a>` : "");
+    `<a href="/ask" class="nav-ask">${t("ask")}</a>` + `<a href="/donate" class="nav-donate" data-k="donate">${t("donate")}</a>` +
+    (user && isSheikh() ? `<a href="/panel" class="nav-staff" data-k="panel">${t("panel")}</a>` : "") +
+    (user && isAdmin() ? `<a href="/admin" class="nav-staff" data-k="admin">${t("admin")}</a><a href="/stats" class="nav-staff" data-k="stats">${t("stats")}</a>` : "");
   $("#langBtn").textContent = lang === "ar" ? "EN" : "ع";
   $("#userbox").innerHTML = !authReady ? "" : user
-    ? `${isSheikh() ? `<a class="btn ghost sm" href="#/panel">${t("panel")}</a>` : ""}${isAdmin() ? `<a class="btn ghost sm" href="#/admin">${t("admin")}</a>` : ""}
-       <a class="me" href="#/profile" title="${esc(myName())}">${avatar(myName(), myPhoto())}</a>`
-    : `<a class="btn sm" href="#/login">${t("login")}</a>`;
+    ? `${isSheikh() ? `<a class="btn ghost sm" href="/panel">${t("panel")}</a>` : ""}${isAdmin() ? `<a class="btn ghost sm" href="/admin">${t("admin")}</a>` : ""}
+       <a class="me" href="/profile" title="${esc(myName())}">${avatar(myName(), myPhoto())}</a>`
+    : `<a class="btn sm" href="/login">${t("login")}</a>`;
 }
 $("#langBtn").onclick = () => { lang = lang === "ar" ? "en" : "ar"; localStorage.setItem("lang", lang); renderShell(); route(); };
 $("#menuBtn").onclick = () => document.body.classList.toggle("nav-open");
@@ -183,7 +183,7 @@ let routeId = 0;
 async function route() {
   const my = ++routeId;
   document.body.classList.remove("nav-open");
-  const [p, id, extra] = location.hash.replace(/^#\/?/, "").split("/").filter(Boolean).map(decodeURIComponent);
+  const [p, id, extra] = location.pathname.replace(/\/index\.html$/, "").split("/").filter(Boolean).map(decodeURIComponent);
   $$("#nav a").forEach(a => a.classList.toggle("on", a.dataset.k === (p || "home") || (p === "fatwa" && a.dataset.k === "fatwa")));
   main().innerHTML = `<div class="loading"><span class="spin"></span>${t("loading")}</div>`;
   window.scrollTo(0, 0);
@@ -213,13 +213,40 @@ async function route() {
         default: main().innerHTML = `<div class="empty">${t("notFound")}</div>`;
       }
     })();
+    if (my === routeId) setPageMeta(p);
     return r;
   } catch (e) {
     console.error(e);
     if (my === routeId) main().innerHTML = `<div class="empty">${esc(errMsg(e))}</div>`;
   }
 }
-window.addEventListener("hashchange", route);
+// روابط عادية بدون # (مناسبة لمحركات البحث)
+function go(h) {
+  h = String(h || "/").replace(/^#/, "") || "/";
+  if (h !== location.pathname + location.search) history.pushState(null, "", h);
+  route();
+}
+window.addEventListener("popstate", route);
+// الروابط القديمة التي فيها / تتحوّل تلقائياً
+function fromHash() { if (location.hash.startsWith("#/")) { history.replaceState(null, "", location.hash.slice(1) || "/"); return true; } return false; }
+fromHash();
+window.addEventListener("hashchange", () => { if (fromHash()) route(); });
+document.addEventListener("click", e => {
+  const a = e.target.closest("a[href]"); if (!a) return;
+  const h = a.getAttribute("href");
+  if (!h.startsWith("/") || h.startsWith("//") || a.target || a.hasAttribute("download") || e.ctrlKey || e.metaKey || e.shiftKey || e.button) return;
+  e.preventDefault(); go(h);
+});
+// عنوان الصفحة ووصفها حسب المحتوى المعروض
+function setPageMeta(p) {
+  const h = $("#app h1"), name = siteName();
+  document.title = p && h ? `${h.textContent.trim()} | ${name}` : name;
+  const d = ($("#app .prose") || {}).textContent;
+  const m = document.querySelector('meta[name="description"]');
+  if (m && d) m.content = d.trim().replace(/\s+/g, " ").slice(0, 160);
+  const c = document.querySelector('link[rel="canonical"]');
+  if (c) c.href = location.origin + (location.pathname.endsWith("/") ? location.pathname : location.pathname + "/");
+}
 
 // ---------- auth ----------
 // أسماء فريدة: كل اسم محجوز في usernames/{مفتاح الاسم}
@@ -274,7 +301,7 @@ onAuthStateChanged(auth, async u => {
 
 function afterLogin() {
   const to = sessionStorage.getItem("after"); sessionStorage.removeItem("after");
-  location.hash = to && !to.includes("login") ? to : "#/";
+  go(to && !to.includes("login") ? to : "/");
 }
 
 const EYE = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/><path class="slash" d="M3 3l18 18"/></svg>';
@@ -348,7 +375,7 @@ async function comments(el, coll, id, kind = "comments") {
   const col = collection(db, coll, id, "comments");
   el.innerHTML = `<h3>${t(kind)} <span class="count"></span></h3><div class="clist"></div>
     ${isBanned() ? `<p class="login-hint">${t("bannedMsg")}</p>` : user ? `<form class="cform">${avatar(myName(), myPhoto())}<textarea required maxlength="3000" placeholder="${t(kind === "replies" ? "writeReply" : "writeComment")}"></textarea><button class="btn sm">${t("send")}</button></form>`
-      : `<a class="login-hint" href="#/login" onclick="sessionStorage.setItem('after',location.hash)">${t("loginToComment")}</a>`}`;
+      : `<a class="login-hint" href="/login" onclick="sessionStorage.setItem('after',location.pathname)">${t("loginToComment")}</a>`}`;
   const load = async () => {
     const s = await getDocs(query(col, orderBy("createdAt", "asc"), limit(500)));
     const list = s.docs.map(d => ({ id: d.id, ...d.data() })).filter(c => isAdmin() || !isHidden(c));
@@ -371,7 +398,7 @@ async function comments(el, coll, id, kind = "comments") {
     $$("[data-rep]", el).forEach(b => b.onclick = async () => {
       if (!confirm(t("confirmReport"))) return;
       const c = list.find(x => x.id === b.dataset.rep);
-      if (await report(`${coll}/${id}/comments/${c.id}`, c, `#/${ROUTE_OF[coll]}/${id}`)) load();
+      if (await report(`${coll}/${id}/comments/${c.id}`, c, `/${ROUTE_OF[coll]}/${id}`)) load();
     });
     $$("[data-restore]", el).forEach(b => b.onclick = async () => {
       try { await updateDoc(doc(col, b.dataset.restore), { reporters: [] }); load(); } catch (e) { toast(errMsg(e), true); }
@@ -417,13 +444,13 @@ const meta = (name, ts, extra = "") => `<div class="meta">${esc(name || "")}${na
 const TYPE_OF = { posts: "post", audios: "audio", videos: "video", books: "book", threads: "thread" };
 function delBtn(coll, item) {
   const can = user && !isBanned() && (isAdmin() || (coll !== "threads" ? isSheikh() : item.uid === user.uid));
-  return can ? `<a class="btn ghost sm" href="#/edit/${TYPE_OF[coll]}/${item.id}">${t("edit")}</a><button class="btn ghost sm danger" id="delItem">${t("delete")}</button>` : "";
+  return can ? `<a class="btn ghost sm" href="/edit/${TYPE_OF[coll]}/${item.id}">${t("edit")}</a><button class="btn ghost sm danger" id="delItem">${t("delete")}</button>` : "";
 }
 function bindDel(coll, id, back) {
   const b = $("#delItem"); if (!b) return;
   b.onclick = async () => {
     if (!confirm(t("confirmDelete"))) return;
-    try { await deleteDoc(doc(db, coll, id)); location.hash = back; } catch (e) { toast(errMsg(e), true); }
+    try { await deleteDoc(doc(db, coll, id)); go(back); } catch (e) { toast(errMsg(e), true); }
   };
 }
 
@@ -431,7 +458,7 @@ function bindDel(coll, id, back) {
 async function pageHome() {
   const [posts, audios, books, fats, threads, videos] = await Promise.all([
     latest("posts", 3), latest("audios", 4), latest("books", 6), answeredFatwas(4), latest("threads", 4), latest("videos", 4)]);
-  const secs = [["posts", "#/posts", "secPosts"], ["audio", "#/audio", "secAudio"], ["videos", "#/videos", "secVideos"], ["books", "#/books", "secBooks"], ["forum", "#/forum", "secForum"], ["fatwa", "#/fatwa", "secFatwa"]];
+  const secs = [["posts", "/posts", "secPosts"], ["audio", "/audio", "secAudio"], ["videos", "/videos", "secVideos"], ["books", "/books", "secBooks"], ["forum", "/forum", "secForum"], ["fatwa", "/fatwa", "secFatwa"]];
   const block = (key, href, html) => `<section class="block"><div class="block-head"><h2>${t(key)}</h2><a href="${href}">${t("viewAll")} ←</a></div>${html}</section>`;
   main().innerHTML = `
     <section class="hero">
@@ -439,53 +466,53 @@ async function pageHome() {
         <p class="eyebrow">${esc(siteName())}</p>
         <h1>${t("heroTitle")}</h1>
         <p>${t("heroSub")}</p>
-        <div class="hero-btns"><a class="btn gold" href="#/ask">${t("ask")}</a><a class="btn ghost light" href="#/fatwa">${t("browseFatwas")}</a></div>
+        <div class="hero-btns"><a class="btn gold" href="/ask">${t("ask")}</a><a class="btn ghost light" href="/fatwa">${t("browseFatwas")}</a></div>
       </div>
     </section>
     <div class="secs">${secs.map(([k, h, d]) => `<a class="sec" href="${h}">${icon(k)}<b>${t(k)}</b><small>${t(d)}</small></a>`).join("")}</div>
     <div class="home-grid">
       <div>
-        ${block("latestFatwas", "#/fatwa", fats.length ? `<div class="list">${fats.map(fatwaItem).join("")}</div>` : `<div class="empty sm">${t("empty")}</div>`)}
-        ${block("latestPosts", "#/posts", posts.length ? `<div class="list">${posts.map(postItem).join("")}</div>` : `<div class="empty sm">${t("empty")}</div>`)}
+        ${block("latestFatwas", "/fatwa", fats.length ? `<div class="list">${fats.map(fatwaItem).join("")}</div>` : `<div class="empty sm">${t("empty")}</div>`)}
+        ${block("latestPosts", "/posts", posts.length ? `<div class="list">${posts.map(postItem).join("")}</div>` : `<div class="empty sm">${t("empty")}</div>`)}
       </div>
       <div>
-        ${block("latestAudio", "#/audio", audios.length ? `<div class="list">${audios.map(audioItem).join("")}</div>` : `<div class="empty sm">${t("empty")}</div>`)}
-        ${block("latestThreads", "#/forum", threads.length ? `<div class="list">${threads.map(threadItem).join("")}</div>` : `<div class="empty sm">${t("empty")}</div>`)}
+        ${block("latestAudio", "/audio", audios.length ? `<div class="list">${audios.map(audioItem).join("")}</div>` : `<div class="empty sm">${t("empty")}</div>`)}
+        ${block("latestThreads", "/forum", threads.length ? `<div class="list">${threads.map(threadItem).join("")}</div>` : `<div class="empty sm">${t("empty")}</div>`)}
       </div>
     </div>
-    ${block("latestVideos", "#/videos", videos.length ? `<div class="videogrid">${videos.map(videoItem).join("")}</div>` : `<div class="empty sm">${t("empty")}</div>`)}
-    ${block("latestBooks", "#/books", books.length ? `<div class="bookgrid">${books.map(bookItem).join("")}</div>` : `<div class="empty sm">${t("empty")}</div>`)}`;
+    ${block("latestVideos", "/videos", videos.length ? `<div class="videogrid">${videos.map(videoItem).join("")}</div>` : `<div class="empty sm">${t("empty")}</div>`)}
+    ${block("latestBooks", "/books", books.length ? `<div class="bookgrid">${books.map(bookItem).join("")}</div>` : `<div class="empty sm">${t("empty")}</div>`)}`;
 }
 
 // ---------- posts ----------
-const postItem = p => `<a class="item" href="#/posts/${p.id}"><h3>${esc(p.title)}</h3><p>${excerpt(p.body)}</p>${meta(p.name, p.createdAt)}</a>`;
+const postItem = p => `<a class="item" href="/posts/${p.id}"><h3>${esc(p.title)}</h3><p>${excerpt(p.body)}</p>${meta(p.name, p.createdAt)}</a>`;
 async function listPosts() {
   const items = await latest("posts", 200);
-  listPage({ titleKey: "posts", items, render: postItem, action: isSheikh() ? { href: "#/new/post", label: "+ " + t("newPost") } : null });
+  listPage({ titleKey: "posts", items, render: postItem, action: isSheikh() ? { href: "/new/post", label: "+ " + t("newPost") } : null });
 }
 async function viewPost(id) {
   const p = await getOne("posts", id); if (!p) return main().innerHTML = `<div class="empty">${t("notFound")}</div>`;
-  main().innerHTML = `<article class="card article"><div class="crumb"><a href="#/posts">${t("posts")}</a></div>
+  main().innerHTML = `<article class="card article"><div class="crumb"><a href="/posts">${t("posts")}</a></div>
     <h1>${esc(p.title)}</h1>${meta(p.name, p.createdAt)}<div class="prose">${nl(p.body)}</div>
     <div class="actions">${delBtn("posts", p)}</div></article><section class="card" id="cm"></section>`;
-  bindDel("posts", id, "#/posts");
+  bindDel("posts", id, "/posts");
   await comments($("#cm"), "posts", id);
 }
 
 // ---------- audio ----------
-const audioItem = a => `<div class="item audio-item"><div class="ai-head">${icon("audio", "ic sm")}<div><a href="#/audio/${a.id}"><h3>${esc(a.title)}</h3></a>
+const audioItem = a => `<div class="item audio-item"><div class="ai-head">${icon("audio", "ic sm")}<div><a href="/audio/${a.id}"><h3>${esc(a.title)}</h3></a>
   <div class="meta">${esc(a.speaker || "")} ${catTag(a.category)}</div></div></div>${safeUrl(a.url) ? `<audio controls preload="none" src="${safeUrl(a.url)}"></audio>` : ""}</div>`;
 async function listAudio() {
   const items = await latest("audios", 300);
-  listPage({ titleKey: "audio", items, render: audioItem, cats: CATS.audios, action: isSheikh() ? { href: "#/new/audio", label: "+ " + t("newAudio") } : null });
+  listPage({ titleKey: "audio", items, render: audioItem, cats: CATS.audios, action: isSheikh() ? { href: "/new/audio", label: "+ " + t("newAudio") } : null });
 }
 async function viewAudio(id) {
   const a = await getOne("audios", id); if (!a) return main().innerHTML = `<div class="empty">${t("notFound")}</div>`;
-  main().innerHTML = `<article class="card article"><div class="crumb"><a href="#/audio">${t("audio")}</a></div>
+  main().innerHTML = `<article class="card article"><div class="crumb"><a href="/audio">${t("audio")}</a></div>
     <h1>${esc(a.title)}</h1><div class="meta">${esc(a.speaker || "")} · ${fmtDate(a.createdAt)} ${catTag(a.category)}</div>
     ${safeUrl(a.url) ? `<audio class="big" controls src="${safeUrl(a.url)}"></audio><a class="btn ghost sm" href="${safeUrl(a.url)}" download target="_blank" rel="noopener">${t("download")}</a>` : ""}
     ${a.desc ? `<div class="prose">${nl(a.desc)}</div>` : ""}<div class="actions">${delBtn("audios", a)}</div></article><section class="card" id="cm"></section>`;
-  bindDel("audios", id, "#/audio");
+  bindDel("audios", id, "/audio");
   await comments($("#cm"), "audios", id);
 }
 
@@ -498,78 +525,78 @@ const isDirectVideo = u => /res\.cloudinary\.com\/.+\/video\/upload\//.test(u ||
 const cloudThumb = u => /res\.cloudinary\.com\/.+\/video\/upload\//.test(u || "") ? u.replace("/video/upload/", "/video/upload/so_2,w_480,c_fill,h_270/").replace(/\.[a-z0-9]+(\?.*)?$/i, ".jpg") : "";
 const videoItem = v => {
   const y = ytId(v.url), ct = cloudThumb(v.url);
-  return `<a class="vcard" href="#/videos/${v.id}"><div class="vthumb">${y ? `<img src="https://i.ytimg.com/vi/${y}/hqdefault.jpg" alt="" loading="lazy">` : ct ? `<img src="${esc(ct)}" alt="" loading="lazy">` : icon("videos")}<span class="play">▶</span></div>
+  return `<a class="vcard" href="/videos/${v.id}"><div class="vthumb">${y ? `<img src="https://i.ytimg.com/vi/${y}/hqdefault.jpg" alt="" loading="lazy">` : ct ? `<img src="${esc(ct)}" alt="" loading="lazy">` : icon("videos")}<span class="play">▶</span></div>
     <h3>${esc(v.title)}</h3><small>${esc(v.speaker || "")} ${catTag(v.category)}</small></a>`;
 };
 async function listVideos() {
   const items = await latest("videos", 300);
-  listPage({ titleKey: "videos", items, render: videoItem, cats: CATS.videos, wrap: "videogrid", action: isSheikh() ? { href: "#/new/video", label: "+ " + t("newVideo") } : null });
+  listPage({ titleKey: "videos", items, render: videoItem, cats: CATS.videos, wrap: "videogrid", action: isSheikh() ? { href: "/new/video", label: "+ " + t("newVideo") } : null });
 }
 async function viewVideo(id) {
   const v = await getOne("videos", id); if (!v) return main().innerHTML = `<div class="empty">${t("notFound")}</div>`;
   const y = ytId(v.url), u = safeUrl(v.url);
-  main().innerHTML = `<article class="card article"><div class="crumb"><a href="#/videos">${t("videos")}</a></div>
+  main().innerHTML = `<article class="card article"><div class="crumb"><a href="/videos">${t("videos")}</a></div>
     <h1>${esc(v.title)}</h1><div class="meta">${esc(v.speaker || "")} · ${fmtDate(v.createdAt)} ${catTag(v.category)}</div>
     ${y ? `<div class="vframe"><iframe src="https://www.youtube-nocookie.com/embed/${y}" title="${esc(v.title)}" allow="accelerometer; encrypted-media; gyroscope; picture-in-picture; fullscreen" allowfullscreen loading="lazy"></iframe></div>`
       : u && isDirectVideo(v.url) ? `<div class="vframe"><video controls preload="metadata" playsinline src="${u}"${cloudThumb(v.url) ? ` poster="${esc(cloudThumb(v.url))}"` : ""}></video></div>`
       : u ? `<a class="btn" href="${u}" target="_blank" rel="noopener">${t("watch")}</a>` : ""}
     ${v.desc ? `<div class="prose">${nl(v.desc)}</div>` : ""}<div class="actions">${delBtn("videos", v)}</div></article><section class="card" id="cm"></section>`;
-  bindDel("videos", id, "#/videos");
+  bindDel("videos", id, "/videos");
   await comments($("#cm"), "videos", id);
 }
 
 // ---------- books ----------
 const cover = b => safeUrl(b.cover) ? `<img src="${safeUrl(b.cover)}" alt="" loading="lazy">` : `<div class="nocover">${icon("books")}<span>${esc(b.title)}</span></div>`;
-const bookItem = b => `<a class="book" href="#/books/${b.id}"><div class="cv">${cover(b)}</div><h3>${esc(b.title)}</h3><small>${esc(b.author || "")}</small></a>`;
+const bookItem = b => `<a class="book" href="/books/${b.id}"><div class="cv">${cover(b)}</div><h3>${esc(b.title)}</h3><small>${esc(b.author || "")}</small></a>`;
 async function listBooks() {
   const items = await latest("books", 300);
-  listPage({ titleKey: "books", items, render: bookItem, cats: CATS.books, wrap: "bookgrid", action: isSheikh() ? { href: "#/new/book", label: "+ " + t("newBook") } : null });
+  listPage({ titleKey: "books", items, render: bookItem, cats: CATS.books, wrap: "bookgrid", action: isSheikh() ? { href: "/new/book", label: "+ " + t("newBook") } : null });
 }
 async function viewBook(id) {
   const b = await getOne("books", id); if (!b) return main().innerHTML = `<div class="empty">${t("notFound")}</div>`;
   const u = safeUrl(b.url);
-  main().innerHTML = `<article class="card article book-view"><div class="crumb"><a href="#/books">${t("books")}</a></div>
+  main().innerHTML = `<article class="card article book-view"><div class="crumb"><a href="/books">${t("books")}</a></div>
     <div class="bv"><div class="cv">${cover(b)}</div><div>
       <h1>${esc(b.title)}</h1><div class="meta">${esc(b.author || "")} ${catTag(b.category)}</div>
       ${b.desc ? `<div class="prose">${nl(b.desc)}</div>` : ""}
       ${u ? `<div class="hero-btns"><a class="btn" href="${u}" target="_blank" rel="noopener">${t("read")}</a><a class="btn ghost" href="${u}" download target="_blank" rel="noopener">${t("download")}</a></div>` : ""}
       <div class="actions">${delBtn("books", b)}</div></div></div></article><section class="card" id="cm"></section>`;
-  bindDel("books", id, "#/books");
+  bindDel("books", id, "/books");
   await comments($("#cm"), "books", id);
 }
 
 // ---------- forum ----------
-const threadItem = th => `<a class="item" href="#/forum/${th.id}"><h3>${esc(th.title)}</h3><p>${excerpt(th.body, 120)}</p>${meta(th.name, th.createdAt, " " + catTag(th.category))}</a>`;
+const threadItem = th => `<a class="item" href="/forum/${th.id}"><h3>${esc(th.title)}</h3><p>${excerpt(th.body, 120)}</p>${meta(th.name, th.createdAt, " " + catTag(th.category))}</a>`;
 async function listForum() {
   const items = (await latest("threads", 300)).filter(x => isAdmin() || !isHidden(x));
-  listPage({ titleKey: "forum", items, render: threadItem, cats: CATS.threads, action: isBanned() ? null : { href: "#/new/thread", label: "+ " + t("newThread") } });
+  listPage({ titleKey: "forum", items, render: threadItem, cats: CATS.threads, action: isBanned() ? null : { href: "/new/thread", label: "+ " + t("newThread") } });
 }
 async function viewThread(id) {
   const th = await getOne("threads", id); if (!th) return main().innerHTML = `<div class="empty">${t("notFound")}</div>`;
   if (isHidden(th) && !isAdmin()) return main().innerHTML = `<div class="empty">${t("hiddenByReports")}</div>`;
-  main().innerHTML = `<article class="card article"><div class="crumb"><a href="#/forum">${t("forum")}</a></div>
+  main().innerHTML = `<article class="card article"><div class="crumb"><a href="/forum">${t("forum")}</a></div>
     <h1>${esc(th.title)}</h1><div class="author-row">${avatar(th.name, th.photo)}${meta(th.name, th.createdAt, " " + catTag(th.category))}</div>
     <div class="prose">${nl(th.body)}</div><div class="actions">${delBtn("threads", th)}
       ${isHidden(th) ? `<span class="tag bad">${t("hiddenByReports")}</span><button class="btn ghost sm" id="restTh">${t("restore")}</button>` : ""}
       ${user && th.uid !== user.uid && !(th.reporters || []).includes(user.uid) && !isBanned() ? `<button class="btn ghost sm" id="repTh">${t("report")}</button>` : ""}</div></article><section class="card" id="cm"></section>`;
-  bindDel("threads", id, "#/forum");
-  const rb = $("#repTh"); if (rb) rb.onclick = async () => { if (confirm(t("confirmReport")) && await report(`threads/${id}`, th, `#/forum/${id}`)) rb.remove(); };
+  bindDel("threads", id, "/forum");
+  const rb = $("#repTh"); if (rb) rb.onclick = async () => { if (confirm(t("confirmReport")) && await report(`threads/${id}`, th, `/forum/${id}`)) rb.remove(); };
   const rs = $("#restTh"); if (rs) rs.onclick = async () => { try { await updateDoc(doc(db, "threads", id), { reporters: [] }); viewThread(id); } catch (e) { toast(errMsg(e), true); } };
   await comments($("#cm"), "threads", id, "replies");
 }
 
 // ---------- fatwa ----------
 const qName = q => q.showName === false ? t("anonymous") : q.name;
-const fatwaItem = q => `<a class="item fatwa-item" href="#/fatwa/${q.id}"><span class="qmark">؟</span><div><h3>${esc(q.title || excerpt(q.body, 80))}</h3>
+const fatwaItem = q => `<a class="item fatwa-item" href="/fatwa/${q.id}"><span class="qmark">؟</span><div><h3>${esc(q.title || excerpt(q.body, 80))}</h3>
   <p>${excerpt(q.answer, 140)}</p>${meta(q.sheikhName ? t("answeredBy") + " " + q.sheikhName : "", q.answeredAt, " " + catTag(q.category))}</div></a>`;
 async function listFatwa() {
   const items = await answeredFatwas();
-  listPage({ titleKey: "fatwa", items, render: fatwaItem, cats: CATS.questions, action: { href: "#/ask", label: t("ask") } });
+  listPage({ titleKey: "fatwa", items, render: fatwaItem, cats: CATS.questions, action: { href: "/ask", label: t("ask") } });
 }
 async function viewFatwa(id) {
   const q = await getOne("questions", id); if (!q) return main().innerHTML = `<div class="empty">${t("notFound")}</div>`;
   const done = q.status === "answered";
-  main().innerHTML = `<article class="card article"><div class="crumb"><a href="#/fatwa">${t("fatwa")}</a> ${catTag(q.category)}</div>
+  main().innerHTML = `<article class="card article"><div class="crumb"><a href="/fatwa">${t("fatwa")}</a> ${catTag(q.category)}</div>
     <h1>${esc(q.title || t("question"))}</h1>
     <div class="qa q"><div class="qa-label">${t("question")}</div><div class="prose">${nl(q.body)}</div>${meta(qName(q), q.createdAt)}</div>
     ${done ? `<div class="qa a"><div class="qa-label">${t("answer")}</div><div class="prose">${nl(q.answer)}</div>
@@ -579,7 +606,7 @@ async function viewFatwa(id) {
       <form class="form" id="ansForm"><textarea name="answer" rows="8" required>${esc(q.answer || "")}</textarea><button class="btn">${t("publishAnswer")}</button></form></details>` : ""}
     <div class="actions">${user && (isAdmin() || (q.uid === user.uid && !done)) ? `<button class="btn ghost sm danger" id="delItem">${t("delete")}</button>` : ""}</div>
     </article>${done ? `<section class="card" id="cm"></section>` : ""}`;
-  bindDel("questions", id, "#/fatwa");
+  bindDel("questions", id, "/fatwa");
   const af = $("#ansForm");
   if (af) af.onsubmit = async e => { e.preventDefault(); await answerQuestion(q, af.answer.value, q.title); viewFatwa(id); };
   if (done) await comments($("#cm"), "questions", id);
@@ -610,7 +637,7 @@ function pageAsk() {
         title: f.title.trim(), body: f.body.trim(), category: f.category, uid: user.uid, name: myName(),
         showName: !f.hide, status: "pending", createdAt: serverTimestamp()
       });
-      markPosted(); bump("questions"); toast(t("askSent")); location.hash = "#/profile";
+      markPosted(); bump("questions"); toast(t("askSent")); go("/profile");
     } catch (err) { toast(errMsg(err), true); e.target.querySelector("button").disabled = false; }
   };
 }
@@ -685,10 +712,10 @@ async function pageNew(type, editId) {
     try {
       if (item) {
         await updateDoc(doc(db, F.coll, editId), { ...data, updatedAt: serverTimestamp() });
-        toast(t("saved")); location.hash = `#/${ROUTE_OF[F.coll]}/${editId}`;
+        toast(t("saved")); go(`/${ROUTE_OF[F.coll]}/${editId}`);
       } else {
         Object.assign(data, { uid: user.uid, name: myName(), photo: myPhoto(), createdAt: serverTimestamp() });
-        const r = await addDoc(collection(db, F.coll), data); markPosted(); bump(F.coll === "threads" ? "threads" : "content"); location.hash = `#/${ROUTE_OF[F.coll]}/${r.id}`;
+        const r = await addDoc(collection(db, F.coll), data); markPosted(); bump(F.coll === "threads" ? "threads" : "content"); go(`/${ROUTE_OF[F.coll]}/${r.id}`);
       }
     } catch (err) { toast(errMsg(err), true); e.target.querySelector("button").disabled = false; }
   };
@@ -714,7 +741,7 @@ function pageContact() {
     const f = Object.fromEntries(new FormData(e.target)), btn = $("button", e.target); btn.disabled = true;
     try {
       await addDoc(collection(db, "messages"), { name: f.name.trim(), email: f.email.trim(), subject: f.subject, text: f.text.trim(), uid: user?.uid || "", createdAt: serverTimestamp() });
-      main().innerHTML = `<div class="card narrow"><h1>${t("contactUs")}</h1><p>${t("msgSent")}</p><a class="btn" href="#/">${t("home")}</a></div>`;
+      main().innerHTML = `<div class="card narrow"><h1>${t("contactUs")}</h1><p>${t("msgSent")}</p><a class="btn" href="/">${t("home")}</a></div>`;
     } catch (err) { toast(errMsg(err), true); btn.disabled = false; }
   };
 }
@@ -788,7 +815,7 @@ async function pageDonate() {
         <div class="dval" dir="auto">${nl(m.details)}</div>
         ${m.note ? `<p class="muted">${nl(m.note)}</p>` : ""}
         <button class="btn sm" data-copy="${i}">${t("copy")}</button></div>`).join("")
-      : `<div class="card dmethod soon"><h3>${t("donateSoon")}</h3><p class="muted">${t("donateSoonNote")}</p><a class="btn ghost sm" href="#/contact">${t("contactUs")}</a></div>`}
+      : `<div class="card dmethod soon"><h3>${t("donateSoon")}</h3><p class="muted">${t("donateSoonNote")}</p><a class="btn ghost sm" href="/contact">${t("contactUs")}</a></div>`}
     </div>
     <div class="card narrow"><h3>${t("donateWhere")}</h3><ul class="dlist">${t("donateUses")}</ul></div>`;
   $$("[data-copy]").forEach(b => b.onclick = async () => {
@@ -810,10 +837,10 @@ async function pageProfile() {
       <form class="form inline" id="nameForm"><label>${t("name")}<input name="name" value="${esc(myName())}" required maxlength="60"></label><button class="btn sm">${t("save")}</button></form>
       <button class="btn ghost sm danger" id="outBtn">${t("logout")}</button>
     </div>
-    <div class="card narrow"><div class="page-head"><h2>${t("myQuestions")}</h2><a class="btn sm" href="#/ask">${t("ask")}</a></div>
-      ${qs.length ? `<div class="list">${qs.map(q => `<a class="item row" href="#/fatwa/${q.id}"><h3>${esc(q.title || excerpt(q.body, 80))}</h3>
+    <div class="card narrow"><div class="page-head"><h2>${t("myQuestions")}</h2><a class="btn sm" href="/ask">${t("ask")}</a></div>
+      ${qs.length ? `<div class="list">${qs.map(q => `<a class="item row" href="/fatwa/${q.id}"><h3>${esc(q.title || excerpt(q.body, 80))}</h3>
         <span class="status ${q.status}">${t(q.status)}</span></a>`).join("")}</div>` : `<div class="empty sm">${t("empty")}</div>`}</div>`;
-  $("#outBtn").onclick = async () => { await signOut(auth); location.hash = "#/"; };
+  $("#outBtn").onclick = async () => { await signOut(auth); go("/"); };
   const setPhoto = async url => {
     await updateDoc(doc(db, "users", user.uid), { photo: url });
     try { await updateProfile(user, { photoURL: url || null }); } catch {}
@@ -854,7 +881,7 @@ async function pagePanel() {
   main().innerHTML = `
     <div class="page-head"><h1>${t("panel")}</h1></div>
     <div class="card"><h2>${t("addContent")}</h2><div class="hero-btns">
-      <a class="btn ghost" href="#/new/post">+ ${t("newPost")}</a><a class="btn ghost" href="#/new/audio">+ ${t("newAudio")}</a><a class="btn ghost" href="#/new/video">+ ${t("newVideo")}</a><a class="btn ghost" href="#/new/book">+ ${t("newBook")}</a></div></div>
+      <a class="btn ghost" href="/new/post">+ ${t("newPost")}</a><a class="btn ghost" href="/new/audio">+ ${t("newAudio")}</a><a class="btn ghost" href="/new/video">+ ${t("newVideo")}</a><a class="btn ghost" href="/new/book">+ ${t("newBook")}</a></div></div>
     <h2 class="sub">${t("pendingQuestions")} (${qs.length})</h2>
     ${qs.length ? qs.map(q => `<div class="card pq" data-id="${q.id}">
       <div class="meta">${esc(q.name)}${q.showName === false ? ` (${t("hideName")})` : ""} · ${fmtDate(q.createdAt)} ${catTag(q.category)}</div>
@@ -912,7 +939,7 @@ async function loadFlags() {
   const box = $("#flags"); if (!box) return;
   const fl = await latest("flags", 100);
   box.innerHTML = fl.length ? fl.map(f => `<div class="item msg"><div class="cmeta"><b>${esc(f.name)}</b><span>${fmtDate(f.createdAt)}</span>
-    <a href="${esc(f.route || "#/")}">${t("view")}</a>
+    <a href="${esc((f.route || "/").replace(/^#/, ""))}">${t("view")}</a>
     <button class="link" data-fok="${f.id}">${t("restore")}</button>
     <button class="link danger" data-fdel="${f.id}">${t("deleteContent")}</button></div>
     ${f.title ? `<b>${esc(f.title)}</b>` : ""}<div class="ctext">${nl(f.text)}</div></div>`).join("") : `<div class="empty sm">${t("noFlags")}</div>`;
@@ -930,7 +957,7 @@ async function loadFlags() {
 async function pageAdmin() {
   if (!requireLogin()) return; if (!isAdmin()) return denied();
   const users = await latest("users", 500);
-  main().innerHTML = `<div class="page-head"><h1>${t("admin")} — ${t("users")} (${users.length})</h1><a class="btn gold" href="#/stats">${icon("stats", "ic sm")} ${t("stats")}</a></div>
+  main().innerHTML = `<div class="page-head"><h1>${t("admin")} — ${t("users")} (${users.length})</h1><a class="btn gold" href="/stats">${icon("stats", "ic sm")} ${t("stats")}</a></div>
     <div class="toolbar"><input class="search" type="search" placeholder="${t("searchUsers")}"></div>
     <div class="card"><table class="tbl"><tbody id="urows"></tbody></table></div>
     <h2 class="sub">${t("flagged")}</h2><div id="flags" class="list"></div>
