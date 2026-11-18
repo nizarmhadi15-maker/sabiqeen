@@ -189,3 +189,4 @@ footer b{font-family:"Amiri",serif;color:var(--gold-l);font-size:1.2rem}
   #userbox .btn.ghost{display:none}
 }
 @media (min-width:961px){ #nav .nav-staff{display:none} }
+.badge.banned{background:var(--red)}

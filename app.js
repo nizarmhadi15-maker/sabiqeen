@@ -31,6 +31,7 @@ const role = () => profile?.role || "user";
 const isAdmin = () => !!user && (role() === "admin" ||
   (user.emailVerified && ADMIN_EMAILS.map(e => e.toLowerCase()).includes((user.email || "").toLowerCase())));
 const isSheikh = () => isAdmin() || role() === "sheikh";
+const isBanned = () => !!user && !isAdmin() && role() === "banned";
 const myName = () => profile?.name || user?.displayName || (user?.email || "").split("@")[0];
 const siteName = () => SITE.name[lang] || SITE.name.ar;
 
@@ -119,7 +120,7 @@ let routeId = 0;
 async function route() {
   const my = ++routeId;
   document.body.classList.remove("nav-open");
-  const [p, id] = location.hash.replace(/^#\/?/, "").split("/").filter(Boolean).map(decodeURIComponent);
+  const [p, id, extra] = location.hash.replace(/^#\/?/, "").split("/").filter(Boolean).map(decodeURIComponent);
   $$("#nav a").forEach(a => a.classList.toggle("on", a.dataset.k === (p || "home") || (p === "fatwa" && a.dataset.k === "fatwa")));
   main().innerHTML = `<div class="loading"><span class="spin"></span>${t("loading")}</div>`;
   window.scrollTo(0, 0);
@@ -139,6 +140,7 @@ async function route() {
         case "panel": return pagePanel();
         case "admin": return pageAdmin();
         case "new": return pageNew(id);
+        case "edit": return pageNew(id, extra);
         default: main().innerHTML = `<div class="empty">${t("notFound")}</div>`;
       }
     })();
@@ -232,7 +234,7 @@ function pageLogin() {
 async function comments(el, coll, id, kind = "comments") {
   const col = collection(db, coll, id, "comments");
   el.innerHTML = `<h3>${t(kind)} <span class="count"></span></h3><div class="clist"></div>
-    ${user ? `<form class="cform">${avatar(myName(), user.photoURL)}<textarea required maxlength="3000" placeholder="${t(kind === "replies" ? "writeReply" : "writeComment")}"></textarea><button class="btn sm">${t("send")}</button></form>`
+    ${isBanned() ? `<p class="login-hint">${t("bannedMsg")}</p>` : user ? `<form class="cform">${avatar(myName(), user.photoURL)}<textarea required maxlength="3000" placeholder="${t(kind === "replies" ? "writeReply" : "writeComment")}"></textarea><button class="btn sm">${t("send")}</button></form>`
       : `<a class="login-hint" href="#/login" onclick="sessionStorage.setItem('after',location.hash)">${t("loginToComment")}</a>`}`;
   const load = async () => {
     const s = await getDocs(query(col, orderBy("createdAt", "asc"), limit(500)));
@@ -288,9 +290,10 @@ function listPage({ titleKey, action, cats, items, render, wrap = "list" }) {
 const catTag = c => c ? `<span class="tag">${t("cat_" + c)}</span>` : "";
 const meta = (name, ts, extra = "") => `<div class="meta">${esc(name || "")}${name ? " · " : ""}${fmtDate(ts)}${extra}</div>`;
 
-function delBtn(coll, item, back) {
-  const can = user && (isAdmin() || (coll !== "threads" ? isSheikh() : item.uid === user.uid));
-  return can ? `<button class="btn ghost sm danger" id="delItem">${t("delete")}</button>` : "";
+const TYPE_OF = { posts: "post", audios: "audio", books: "book", threads: "thread" };
+function delBtn(coll, item) {
+  const can = user && !isBanned() && (isAdmin() || (coll !== "threads" ? isSheikh() : item.uid === user.uid));
+  return can ? `<a class="btn ghost sm" href="#/edit/${TYPE_OF[coll]}/${item.id}">${t("edit")}</a><button class="btn ghost sm danger" id="delItem">${t("delete")}</button>` : "";
 }
 function bindDel(coll, id, back) {
   const b = $("#delItem"); if (!b) return;
@@ -385,7 +388,7 @@ async function viewBook(id) {
 const threadItem = th => `<a class="item" href="#/forum/${th.id}"><h3>${esc(th.title)}</h3><p>${excerpt(th.body, 120)}</p>${meta(th.name, th.createdAt, " " + catTag(th.category))}</a>`;
 async function listForum() {
   const items = await latest("threads", 300);
-  listPage({ titleKey: "forum", items, render: threadItem, cats: CATS.threads, action: { href: "#/new/thread", label: "+ " + t("newThread") } });
+  listPage({ titleKey: "forum", items, render: threadItem, cats: CATS.threads, action: isBanned() ? null : { href: "#/new/thread", label: "+ " + t("newThread") } });
 }
 async function viewThread(id) {
   const th = await getOne("threads", id); if (!th) return main().innerHTML = `<div class="empty">${t("notFound")}</div>`;
@@ -430,6 +433,7 @@ async function answerQuestion(q, answer, title) {
 }
 function pageAsk() {
   if (!requireLogin()) return;
+  if (isBanned()) return main().innerHTML = `<div class="empty">${t("bannedMsg")}</div>`;
   main().innerHTML = `<div class="card narrow"><h1>${t("ask")}</h1><p class="muted">${t("askNote")}</p>
     <form class="form" id="askForm">
       <label>${t("category")}<select name="category">${CATS.questions.map(c => `<option value="${c}">${t("cat_" + c)}</option>`).join("")}</select></label>
@@ -458,25 +462,39 @@ const FORMS = {
   book: { coll: "books", staff: true, title: "newBook", fields: [{ k: "title" }, { k: "author" }, { k: "url", type: "url", label: "pdfUrl" }, { k: "cover", type: "url", opt: true }, { k: "category", type: "select", opts: CATS.books }, { k: "desc", type: "textarea", opt: true }] },
   thread: { coll: "threads", staff: false, title: "newThread", fields: [{ k: "title" }, { k: "category", type: "select", opts: CATS.threads }, { k: "body", type: "textarea", rows: 10 }] }
 };
-function pageNew(type) {
+async function pageNew(type, editId) {
   const F = FORMS[type]; if (!F) return main().innerHTML = `<div class="empty">${t("notFound")}</div>`;
   if (!requireLogin()) return;
+  if (isBanned()) return main().innerHTML = `<div class="empty">${t("bannedMsg")}</div>`;
   if (F.staff && !isSheikh()) return denied();
+  let item = null;
+  if (editId) {
+    item = await getOne(F.coll, editId);
+    if (!item) return main().innerHTML = `<div class="empty">${t("notFound")}</div>`;
+    if (!F.staff && !isAdmin() && item.uid !== user.uid) return denied();
+  }
+  const v = k => esc(item?.[k] ?? "");
   const field = f => {
     const lbl = `${t(f.label || f.k)}${f.opt ? ` <small>(${t("optional")})</small>` : ""}`, req = f.opt ? "" : "required";
-    if (f.type === "textarea") return `<label>${lbl}<textarea name="${f.k}" rows="${f.rows || 5}" ${req}></textarea></label>`;
-    if (f.type === "select") return `<label>${lbl}<select name="${f.k}">${f.opts.map(o => `<option value="${o}">${t("cat_" + o)}</option>`).join("")}</select></label>`;
-    return `<label>${lbl}<input name="${f.k}" type="${f.type || "text"}" ${req} ${f.type === "url" ? 'dir="ltr" placeholder="https://"' : 'maxlength="200"'}></label>`;
+    if (f.type === "textarea") return `<label>${lbl}<textarea name="${f.k}" rows="${f.rows || 5}" ${req}>${v(f.k)}</textarea></label>`;
+    if (f.type === "select") return `<label>${lbl}<select name="${f.k}">${f.opts.map(o => `<option value="${o}"${item?.[f.k] === o ? " selected" : ""}>${t("cat_" + o)}</option>`).join("")}</select></label>`;
+    return `<label>${lbl}<input name="${f.k}" value="${v(f.k)}" type="${f.type || "text"}" ${req} ${f.type === "url" ? 'dir="ltr" placeholder="https://"' : 'maxlength="200"'}></label>`;
   };
-  main().innerHTML = `<div class="card narrow"><h1>${t(F.title)}</h1><form class="form" id="newForm">${F.fields.map(field).join("")}<button class="btn wide">${t("save")}</button></form></div>`;
+  main().innerHTML = `<div class="card narrow"><h1>${item ? t("edit") + ": " + esc(item.title) : t(F.title)}</h1><form class="form" id="newForm">${F.fields.map(field).join("")}<button class="btn wide">${t("save")}</button></form></div>`;
   $("#newForm").onsubmit = async e => {
     e.preventDefault();
     const data = {};
     F.fields.forEach(f => data[f.k] = String(new FormData(e.target).get(f.k) || "").trim());
-    Object.assign(data, { uid: user.uid, name: myName(), photo: user.photoURL || "", createdAt: serverTimestamp() });
     e.target.querySelector("button").disabled = true;
-    try { const r = await addDoc(collection(db, F.coll), data); location.hash = `#/${ROUTE_OF[F.coll]}/${r.id}`; }
-    catch (err) { toast(errMsg(err), true); e.target.querySelector("button").disabled = false; }
+    try {
+      if (item) {
+        await updateDoc(doc(db, F.coll, editId), { ...data, updatedAt: serverTimestamp() });
+        toast(t("saved")); location.hash = `#/${ROUTE_OF[F.coll]}/${editId}`;
+      } else {
+        Object.assign(data, { uid: user.uid, name: myName(), photo: user.photoURL || "", createdAt: serverTimestamp() });
+        const r = await addDoc(collection(db, F.coll), data); location.hash = `#/${ROUTE_OF[F.coll]}/${r.id}`;
+      }
+    } catch (err) { toast(errMsg(err), true); e.target.querySelector("button").disabled = false; }
   };
 }
 
@@ -543,7 +561,7 @@ async function pageAdmin() {
   const draw = q => {
     $("#urows").innerHTML = users.filter(u => !q || (u.name + " " + u.email).toLowerCase().includes(q)).map(u => `
       <tr><td><div class="author-row">${avatar(u.name, u.photo)}<div><b>${esc(u.name)}</b><div class="meta" dir="ltr">${esc(u.email)}</div></div></div></td>
-      <td><select data-uid="${u.id}">${["user", "sheikh", "admin"].map(r => `<option value="${r}"${u.role === r ? " selected" : ""}>${t("role_" + r)}</option>`).join("")}</select></td></tr>`).join("");
+      <td><select data-uid="${u.id}">${["user", "sheikh", "admin", "banned"].map(r => `<option value="${r}"${u.role === r ? " selected" : ""}>${t("role_" + r)}</option>`).join("")}</select></td></tr>`).join("");
     $$("#urows select").forEach(s => s.onchange = async () => {
       try { await updateDoc(doc(db, "users", s.dataset.uid), { role: s.value }); users.find(u => u.id === s.dataset.uid).role = s.value; toast(t("saved")); }
       catch (e) { toast(errMsg(e), true); }
