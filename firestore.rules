@@ -1,0 +1,63 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ضع بريدك هنا (نفس البريد في config.js)
+    function adminEmails() { return ['nizarmhadi15@gmail.com']; }
+
+    function signedIn() { return request.auth != null; }
+    function hasProfile() { return exists(/databases/$(database)/documents/users/$(request.auth.uid)); }
+    function myRole() { return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role; }
+    function isAdmin() {
+      return signedIn() && (
+        (request.auth.token.email_verified == true && request.auth.token.email in adminEmails())
+        || (hasProfile() && myRole() == 'admin'));
+    }
+    function isSheikh() { return signedIn() && (isAdmin() || (hasProfile() && myRole() == 'sheikh')); }
+    function txt(f, max) {
+      return request.resource.data[f] is string && request.resource.data[f].size() > 0 && request.resource.data[f].size() <= max;
+    }
+    function ownsNew() { return signedIn() && request.resource.data.uid == request.auth.uid; }
+
+    match /users/{uid} {
+      allow read: if signedIn() && (request.auth.uid == uid || isAdmin());
+      allow create: if signedIn() && request.auth.uid == uid && request.resource.data.role == 'user';
+      allow update: if isAdmin()
+        || (signedIn() && request.auth.uid == uid && request.resource.data.role == resource.data.role);
+      allow delete: if isAdmin();
+    }
+
+    // المقالات والصوتيات والكتب: القراءة للجميع، الإضافة للمشايخ والمدير
+    match /posts/{id}  { allow read: if true; allow create, update, delete: if isSheikh(); }
+    match /audios/{id} { allow read: if true; allow create, update, delete: if isSheikh(); }
+    match /books/{id}  { allow read: if true; allow create, update, delete: if isSheikh(); }
+
+    // المنتدى: أي عضو مسجّل يكتب موضوعاً
+    match /threads/{id} {
+      allow read: if true;
+      allow create: if ownsNew() && txt('title', 200) && txt('body', 10000);
+      allow update: if signedIn() && resource.data.uid == request.auth.uid && request.resource.data.uid == resource.data.uid;
+      allow delete: if isAdmin() || (signedIn() && resource.data.uid == request.auth.uid);
+    }
+
+    // الفتاوى: السؤال لا يظهر للعامة إلا بعد الإجابة
+    match /questions/{id} {
+      allow read: if resource.data.status == 'answered'
+        || (signedIn() && (resource.data.uid == request.auth.uid || isSheikh()));
+      allow create: if ownsNew() && request.resource.data.status == 'pending'
+        && !('answer' in request.resource.data) && txt('body', 5000);
+      allow update: if isSheikh();
+      allow delete: if isAdmin()
+        || (signedIn() && resource.data.uid == request.auth.uid && resource.data.status == 'pending');
+    }
+
+    // التعليقات والردود
+    match /{coll}/{docId}/comments/{cid} {
+      allow read: if coll in ['posts', 'audios', 'books', 'threads', 'questions'];
+      allow create: if coll in ['posts', 'audios', 'books', 'threads', 'questions']
+        && ownsNew() && txt('text', 3000)
+        && (!('badge' in request.resource.data) || isSheikh());
+      allow delete: if isAdmin() || (signedIn() && resource.data.uid == request.auth.uid);
+    }
+  }
+}
