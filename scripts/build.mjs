@@ -30,12 +30,13 @@ async function list(coll) {
   }
   return out;
 }
-async function answered() {
+async function where(coll, field, value) {
   const r = await fetch(`${BASE}:runQuery?${KEY}`, { method: "POST", headers: { "content-type": "application/json" },
-    body: JSON.stringify({ structuredQuery: { from: [{ collectionId: "questions" }], where: { fieldFilter: { field: { fieldPath: "status" }, op: "EQUAL", value: { stringValue: "answered" } } }, limit: 5000 } }) });
-  if (!r.ok) { console.warn("questions", r.status, await r.text()); return []; }
+    body: JSON.stringify({ structuredQuery: { from: [{ collectionId: coll }], where: { fieldFilter: { field: { fieldPath: field }, op: "EQUAL", value: { stringValue: value } } }, limit: 5000 } }) });
+  if (!r.ok) { console.warn(coll, r.status, await r.text()); return []; }
   return (await r.json()).filter(x => x.document).map(x => docOf(x.document));
 }
+const answered = () => where("questions", "status", "answered");
 
 // ---------- أدوات ----------
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -74,7 +75,7 @@ for (const f of fs.readdirSync(ROOT)) if (!SKIP.has(f) && !f.startsWith(".")) fs
 fs.writeFileSync(path.join(OUT, "404.html"), tpl.replace("<head>", '<head>\n  <meta name="robots" content="noindex">'));
 
 // ---------- جلب المحتوى ----------
-const [posts, audios, videos, books, threads, fatwas] = await Promise.all(["posts", "audios", "videos", "books", "threads"].map(list).concat(answered()));
+const [posts, audios, videos, threads, books, fatwas] = await Promise.all(["posts", "audios", "videos", "threads"].map(list).concat(where("books", "status", "published"), answered()));
 const urls = [{ loc: "/", pri: "1.0", freq: "daily" }];
 const add = (loc, last, pri = "0.7", freq = "weekly") => urls.push({ loc, last: day(last), pri, freq });
 const sortNew = a => a.sort((x, y) => String(y.createdAt || "").localeCompare(String(x.createdAt || "")));
@@ -87,7 +88,7 @@ const SECTIONS = [
   { key: "videos", route: "videos", items: videos, label: T.videos, sub: T.secVideos, type: "VideoObject",
     body: v => `${v.desc ? `<div class="prose">${nl(v.desc)}</div>` : ""}`, by: v => v.speaker, desc: v => v.desc || `${v.title} — ${v.speaker || ""}` },
   { key: "books", route: "books", items: books, label: T.books, sub: T.secBooks, type: "Book",
-    body: b => `${b.desc ? `<div class="prose">${nl(b.desc)}</div>` : ""}`, by: b => b.author, desc: b => b.desc || `${b.title} — ${b.author || ""}` },
+    body: b => `${b.cover ? `<img src="${esc(b.cover)}" alt="${esc(b.title)}" width="200">` : ""}${b.desc ? `<div class="prose">${nl(b.desc)}</div>` : ""}`, by: b => b.author, desc: b => b.desc || `${b.title} — ${b.author || ""}` },
   { key: "threads", route: "forum", items: threads.filter(x => !hidden(x)), label: T.forum, sub: T.secForum, type: "DiscussionForumPosting",
     body: th => `<div class="prose">${nl(th.body)}</div>`, by: th => th.name, desc: th => th.body },
 ];
