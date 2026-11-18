@@ -175,7 +175,9 @@ function renderShell() {
   $("#brandName").textContent = siteName();
   $("#footer").innerHTML = `<b>${esc(siteName())}</b> — ${esc(SITE.tagline[lang])}<nav class="foot-links"><a href="/about">${t("aboutUs")}</a><a href="/donate">${t("donate")}</a><a href="/contact">${t("contactUs")}</a><a href="/terms">${t("terms")}</a><a href="/privacy">${t("privacy")}</a></nav><small>© ${new Date().getFullYear()} ${t("footer")}</small>`;
   const links = [["home", "/"], ["posts", "/posts"], ["audio", "/audio"], ["videos", "/videos"], ["books", "/books"], ["forum", "/forum"], ["fatwa", "/fatwa"]];
-  $("#nav").innerHTML = links.map(([k, h]) => `<a href="${h}" data-k="${k}">${t(k)}</a>`).join("") +
+  const bookDD = `<div class="nav-dd"><a href="/books" data-k="books">${t("books")}</a><button type="button" class="dd-tog" aria-label="${t("bookCats")}">▾</button>
+    <div class="dd"><a href="/books">📚 ${t("allBooks")}</a>${CATS.books.map(c => `<a href="/books?c=${c}">${t("cat_" + c)}</a>`).join("")}</div></div>`;
+  $("#nav").innerHTML = links.map(([k, h]) => k === "books" ? bookDD : `<a href="${h}" data-k="${k}">${t(k)}</a>`).join("") +
     `<a href="/ask" class="nav-ask">${t("ask")}</a>` + `<a href="/donate" class="nav-donate" data-k="donate">${t("donate")}</a>` +
     (user && isSheikh() ? `<a href="/panel" class="nav-staff" data-k="panel">${t("panel")}</a>` : "") +
     (user && isAdmin() ? `<a href="/admin" class="nav-staff" data-k="admin">${t("admin")}</a><a href="/stats" class="nav-staff" data-k="stats">${t("stats")}</a>` : "");
@@ -187,6 +189,12 @@ function renderShell() {
 }
 $("#langBtn").onclick = () => { lang = lang === "ar" ? "en" : "ar"; localStorage.setItem("lang", lang); renderShell(); route(); };
 $("#menuBtn").onclick = () => document.body.classList.toggle("nav-open");
+document.addEventListener("click", e => {
+  const tg = e.target.closest(".dd-tog");
+  if (tg) { e.preventDefault(); tg.parentElement.classList.toggle("open"); return; }
+  if (!e.target.closest(".nav-dd")) $$(".nav-dd.open").forEach(x => x.classList.remove("open"));
+  else if (e.target.closest(".dd a")) $$(".nav-dd.open").forEach(x => x.classList.remove("open"));
+});
 document.addEventListener("play", e => $$("audio").forEach(a => a !== e.target && a.pause()), true);
 
 // ---------- router ----------
@@ -436,15 +444,15 @@ async function comments(el, coll, id, kind = "comments") {
 }
 
 // ---------- generic list page ----------
-function listPage({ titleKey, action, cats, items, render, wrap = "list", countKey }) {
+function listPage({ titleKey, action, cats, items, render, wrap = "list", countKey, startCat = "all" }) {
   main().innerHTML = `
     <div class="page-head"><h1>${t(titleKey)}</h1>${action ? `<a class="btn" href="${action.href}">${action.label}</a>` : ""}</div>
     <div class="toolbar"><input class="search" type="search" placeholder="${t("search")}">
-      ${cats ? `<div class="chips">${["all", ...cats].map(c => `<button class="chip${c === "all" ? " on" : ""}" data-c="${c}">${t(c === "all" ? "all" : "cat_" + c)}</button>`).join("")}</div>` : ""}
+      ${cats ? `<div class="chips">${["all", ...cats].map(c => `<button class="chip${c === startCat ? " on" : ""}" data-c="${c}">${t(c === "all" ? "all" : "cat_" + c)}</button>`).join("")}</div>` : ""}
     </div>
     ${countKey ? `<div class="list-count" id="lcount"></div>` : ""}
     <div class="${wrap}" id="items"></div>`;
-  let cat = "all", q = "";
+  let cat = startCat, q = "";
   const draw = () => {
     const f = items.filter(i => (cat === "all" || i.category === cat) &&
       (!q || [i.title, i.body, i.author, i.speaker, i.desc, i.answer, i.name].join(" ").toLowerCase().includes(q)));
@@ -568,7 +576,8 @@ const cover = b => safeUrl(b.cover) ? `<img src="${safeUrl(b.cover)}" alt="" loa
 const bookItem = b => `<a class="book" href="/books/${b.id}"><div class="cv">${cover(b)}</div><h3>${esc(b.title)}</h3><small>${esc(b.author || "")}</small></a>`;
 async function listBooks() {
   const items = await publishedBooks(1000);
-  listPage({ titleKey: "books", items, render: bookItem, cats: CATS.books, wrap: "bookgrid", action: isBanned() ? null : { href: "/new/book", label: "+ " + t("publishBook") } });
+  const c0 = new URLSearchParams(location.search).get("c");
+  listPage({ titleKey: "books", items, render: bookItem, cats: CATS.books, countKey: "bookCount", startCat: CATS.books.includes(c0) ? c0 : "all", wrap: "bookgrid", action: isBanned() ? null : { href: "/new/book", label: "+ " + t("publishBook") } });
 }
 const subTag = c => c ? `<span class="tag soft">${t("sub_" + c)}</span>` : "";
 const isCloudPdf = u => /res\.cloudinary\.com\/.+\/image\/upload\/.+\.pdf(\?.*)?$/i.test(u || "");
@@ -695,7 +704,7 @@ async function pageBookForm(editId) {
         <label>${t("edition")}<input name="edition" maxlength="40" value="${esc(x.edition || "")}"></label>
       </div>
       <label class="check"><input type="checkbox" name="agree" required${b ? " checked" : ""}> <span>${t("agreeTerms")} <a href="/terms" target="_blank">${t("terms")}</a> · <a href="/privacy" target="_blank">${t("privacy")}</a></span></label>
-      ${b ? "" : capBox()}<button class="btn wide">⬆ ${b ? t("save") : t("publishBook")}</button>
+      ${b || isSheikh() ? "" : capBox()}<button class="btn wide">⬆ ${b ? t("save") : t("publishBook")}</button>
     </form></div>`;
   const F = $("#bkForm"), save = $("#bkForm > button"), cap = captcha($("#bkForm .cf-box"));
   let fileUrl = b?.url || "", fileType = b?.fileType || "", coverUrl = b?.cover || "", busy = 0;

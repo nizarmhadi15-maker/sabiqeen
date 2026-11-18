@@ -298,3 +298,10 @@ small.green{color:var(--teal);font-weight:500}
 
 .list-count{margin:-4px 2px 12px;color:var(--muted);font-size:.95rem}.list-count b{color:var(--gold);font-size:1.05rem}
 .qmark.qnum{font:700 1rem/1 system-ui,sans-serif;font-variant-numeric:tabular-nums}
+
+.nav-dd{position:relative;display:flex;align-items:center}
+.nav-dd .dd-tog{background:none;border:0;color:var(--ink);cursor:pointer;padding:6px 4px;font-size:.9rem;margin-inline-start:-6px}
+.nav-dd .dd{display:none;position:absolute;top:100%;inset-inline-start:0;z-index:50;min-width:220px;background:var(--card);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);padding:6px;flex-direction:column}
+.nav-dd .dd a{display:block;padding:8px 12px;border-radius:8px;white-space:nowrap}
+.nav-dd:hover .dd,.nav-dd:focus-within .dd,.nav-dd.open .dd{display:flex}
+@media (max-width:1180px){.nav-dd{flex-wrap:wrap}.nav-dd>a{flex:1}.nav-dd .dd{position:static;box-shadow:none;border:0;border-inline-start:2px solid var(--gold-l);border-radius:0;margin-inline-start:12px;width:100%;min-width:0}.nav-dd:hover .dd,.nav-dd:focus-within .dd{display:none}.nav-dd.open .dd{display:flex}.nav-dd .dd-tog{font-size:1.1rem;padding:6px 12px}}
