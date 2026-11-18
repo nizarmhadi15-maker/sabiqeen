@@ -559,11 +559,15 @@ async function pageAdmin() {
     <div class="toolbar"><input class="search" type="search" placeholder="${t("searchUsers")}"></div>
     <div class="card"><table class="tbl"><tbody id="urows"></tbody></table></div>`;
   const draw = q => {
-    $("#urows").innerHTML = users.filter(u => !q || (u.name + " " + u.email).toLowerCase().includes(q)).map(u => `
-      <tr><td><div class="author-row">${avatar(u.name, u.photo)}<div><b>${esc(u.name)}</b><div class="meta" dir="ltr">${esc(u.email)}</div></div></div></td>
-      <td><select data-uid="${u.id}">${["user", "sheikh", "admin", "banned"].map(r => `<option value="${r}"${u.role === r ? " selected" : ""}>${t("role_" + r)}</option>`).join("")}</select></td></tr>`).join("");
+    const effRole = u => ADMIN_EMAILS.map(e => e.toLowerCase()).includes((u.email || "").toLowerCase()) ? "admin" : (u.role || "user");
+    $("#urows").innerHTML = users.filter(u => !q || (u.name + " " + u.email).toLowerCase().includes(q)).map(u => {
+      const r = effRole(u), me = u.id === user.uid, owner = r === "admin" && u.role !== "admin";
+      return `<tr><td><div class="author-row">${avatar(u.name, u.photo)}<div><b>${esc(u.name)}</b> <span class="badge ${r}">${t("role_" + r)}</span>${me ? ` <small class="muted">(${t("you")})</small>` : ""}
+        <div class="meta" dir="ltr">${esc(u.email)}</div></div></div></td>
+      <td>${me || owner ? "" : `<select data-uid="${u.id}">${["user", "sheikh", "admin", "banned"].map(x => `<option value="${x}"${r === x ? " selected" : ""}>${t("role_" + x)}</option>`).join("")}</select>`}</td></tr>`;
+    }).join("");
     $$("#urows select").forEach(s => s.onchange = async () => {
-      try { await updateDoc(doc(db, "users", s.dataset.uid), { role: s.value }); users.find(u => u.id === s.dataset.uid).role = s.value; toast(t("saved")); }
+      try { await updateDoc(doc(db, "users", s.dataset.uid), { role: s.value }); users.find(u => u.id === s.dataset.uid).role = s.value; toast(t("saved")); draw($(".search").value.trim().toLowerCase()); }
       catch (e) { toast(errMsg(e), true); }
     });
   };
