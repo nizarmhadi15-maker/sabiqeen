@@ -31,6 +31,7 @@ service cloud.firestore {
     // المقالات والصوتيات والكتب: القراءة للجميع، الإضافة للمشايخ والمدير
     match /posts/{id}  { allow read: if true; allow create, update, delete: if isSheikh(); }
     match /audios/{id} { allow read: if true; allow create, update, delete: if isSheikh(); }
+    match /videos/{id} { allow read: if true; allow create, update, delete: if isSheikh(); }
     match /books/{id}  { allow read: if true; allow create, update, delete: if isSheikh(); }
 
     // المنتدى: أي عضو مسجّل يكتب موضوعاً
@@ -60,8 +61,8 @@ service cloud.firestore {
 
     // التعليقات والردود
     match /{coll}/{docId}/comments/{cid} {
-      allow read: if coll in ['posts', 'audios', 'books', 'threads', 'questions'];
-      allow create: if coll in ['posts', 'audios', 'books', 'threads', 'questions']
+      allow read: if coll in ['posts', 'audios', 'videos', 'books', 'threads', 'questions'];
+      allow create: if coll in ['posts', 'audios', 'videos', 'books', 'threads', 'questions']
         && ownsNew() && txt('text', 3000)
         && (!('badge' in request.resource.data) || isSheikh());
       allow delete: if isAdmin() || (signedIn() && resource.data.uid == request.auth.uid);

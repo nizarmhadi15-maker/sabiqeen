@@ -40,12 +40,14 @@ const CATS = {
   questions: ["ibadat", "muamalat", "family", "aqeedah", "other"],
   threads: ["general", "quran", "hadith", "fiqh", "seerah", "other"],
   audios: ["quran", "lectures", "khutab", "lessons"],
+  videos: ["lectures", "khutab", "lessons", "quran"],
   books: ["quran_sci", "hadith", "fiqh", "aqeedah", "seerah", "other"]
 };
-const ROUTE_OF = { posts: "posts", audios: "audio", books: "books", threads: "forum", questions: "fatwa" };
+const ROUTE_OF = { posts: "posts", audios: "audio", videos: "videos", books: "books", threads: "forum", questions: "fatwa" };
 
 const ICON = {
   posts: '<path d="M5 4h11l3 3v13H5z"/><path d="M8 10h8M8 14h8M8 18h5"/>',
+  videos: '<rect x="3" y="5" width="18" height="14" rx="3"/><path d="M10 9.5v5l4.5-2.5z"/>',
   audio: '<path d="M4 14v-2a8 8 0 0 1 16 0v2"/><rect x="3" y="14" width="4" height="6" rx="1"/><rect x="17" y="14" width="4" height="6" rx="1"/>',
   books: '<path d="M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2z"/><path d="M4 21V5"/><path d="M9 7h6"/>',
   forum: '<path d="M4 5h12v9H8l-4 3z"/><path d="M16 9h4v9l-3-2h-7v-2"/>',
@@ -101,7 +103,7 @@ function renderShell() {
   document.title = siteName();
   $("#brandName").textContent = siteName();
   $("#footer").innerHTML = `<b>${esc(siteName())}</b> — ${esc(SITE.tagline[lang])}<nav class="foot-links"><a href="#/about">${t("aboutUs")}</a><a href="#/contact">${t("contactUs")}</a><a href="#/terms">${t("terms")}</a><a href="#/privacy">${t("privacy")}</a></nav><small>© ${new Date().getFullYear()} ${t("footer")}</small>`;
-  const links = [["home", "#/"], ["posts", "#/posts"], ["audio", "#/audio"], ["books", "#/books"], ["forum", "#/forum"], ["fatwa", "#/fatwa"]];
+  const links = [["home", "#/"], ["posts", "#/posts"], ["audio", "#/audio"], ["videos", "#/videos"], ["books", "#/books"], ["forum", "#/forum"], ["fatwa", "#/fatwa"]];
   $("#nav").innerHTML = links.map(([k, h]) => `<a href="${h}" data-k="${k}">${t(k)}</a>`).join("") +
     `<a href="#/ask" class="nav-ask">${t("ask")}</a>` +
     (user && isSheikh() ? `<a href="#/panel" class="nav-staff" data-k="panel">${t("panel")}</a>` : "") +
@@ -132,6 +134,7 @@ async function route() {
         case undefined: case "home": return pageHome();
         case "posts": return id ? viewPost(id) : listPosts();
         case "audio": return id ? viewAudio(id) : listAudio();
+        case "videos": return id ? viewVideo(id) : listVideos();
         case "books": return id ? viewBook(id) : listBooks();
         case "forum": return id ? viewThread(id) : listForum();
         case "fatwa": return id ? viewFatwa(id) : listFatwa();
@@ -293,7 +296,7 @@ function listPage({ titleKey, action, cats, items, render, wrap = "list" }) {
 const catTag = c => c ? `<span class="tag">${t("cat_" + c)}</span>` : "";
 const meta = (name, ts, extra = "") => `<div class="meta">${esc(name || "")}${name ? " · " : ""}${fmtDate(ts)}${extra}</div>`;
 
-const TYPE_OF = { posts: "post", audios: "audio", books: "book", threads: "thread" };
+const TYPE_OF = { posts: "post", audios: "audio", videos: "video", books: "book", threads: "thread" };
 function delBtn(coll, item) {
   const can = user && !isBanned() && (isAdmin() || (coll !== "threads" ? isSheikh() : item.uid === user.uid));
   return can ? `<a class="btn ghost sm" href="#/edit/${TYPE_OF[coll]}/${item.id}">${t("edit")}</a><button class="btn ghost sm danger" id="delItem">${t("delete")}</button>` : "";
@@ -308,9 +311,9 @@ function bindDel(coll, id, back) {
 
 // ---------- home ----------
 async function pageHome() {
-  const [posts, audios, books, fats, threads] = await Promise.all([
-    latest("posts", 3), latest("audios", 4), latest("books", 6), answeredFatwas(4), latest("threads", 4)]);
-  const secs = [["posts", "#/posts", "secPosts"], ["audio", "#/audio", "secAudio"], ["books", "#/books", "secBooks"], ["forum", "#/forum", "secForum"], ["fatwa", "#/fatwa", "secFatwa"]];
+  const [posts, audios, books, fats, threads, videos] = await Promise.all([
+    latest("posts", 3), latest("audios", 4), latest("books", 6), answeredFatwas(4), latest("threads", 4), latest("videos", 4)]);
+  const secs = [["posts", "#/posts", "secPosts"], ["audio", "#/audio", "secAudio"], ["videos", "#/videos", "secVideos"], ["books", "#/books", "secBooks"], ["forum", "#/forum", "secForum"], ["fatwa", "#/fatwa", "secFatwa"]];
   const block = (key, href, html) => `<section class="block"><div class="block-head"><h2>${t(key)}</h2><a href="${href}">${t("viewAll")} ←</a></div>${html}</section>`;
   main().innerHTML = `
     <section class="hero">
@@ -332,6 +335,7 @@ async function pageHome() {
         ${block("latestThreads", "#/forum", threads.length ? `<div class="list">${threads.map(threadItem).join("")}</div>` : `<div class="empty sm">${t("empty")}</div>`)}
       </div>
     </div>
+    ${block("latestVideos", "#/videos", videos.length ? `<div class="videogrid">${videos.map(videoItem).join("")}</div>` : `<div class="empty sm">${t("empty")}</div>`)}
     ${block("latestBooks", "#/books", books.length ? `<div class="bookgrid">${books.map(bookItem).join("")}</div>` : `<div class="empty sm">${t("empty")}</div>`)}`;
 }
 
@@ -365,6 +369,32 @@ async function viewAudio(id) {
     ${a.desc ? `<div class="prose">${nl(a.desc)}</div>` : ""}<div class="actions">${delBtn("audios", a)}</div></article><section class="card" id="cm"></section>`;
   bindDel("audios", id, "#/audio");
   await comments($("#cm"), "audios", id);
+}
+
+// ---------- videos ----------
+function ytId(u) {
+  const m = String(u || "").match(/(?:youtube\.com\/(?:watch\?(?:.*&)?v=|shorts\/|embed\/|live\/)|youtu\.be\/)([\w-]{11})/);
+  return m ? m[1] : "";
+}
+const videoItem = v => {
+  const y = ytId(v.url);
+  return `<a class="vcard" href="#/videos/${v.id}"><div class="vthumb">${y ? `<img src="https://i.ytimg.com/vi/${y}/hqdefault.jpg" alt="" loading="lazy">` : icon("videos")}<span class="play">▶</span></div>
+    <h3>${esc(v.title)}</h3><small>${esc(v.speaker || "")} ${catTag(v.category)}</small></a>`;
+};
+async function listVideos() {
+  const items = await latest("videos", 300);
+  listPage({ titleKey: "videos", items, render: videoItem, cats: CATS.videos, wrap: "videogrid", action: isSheikh() ? { href: "#/new/video", label: "+ " + t("newVideo") } : null });
+}
+async function viewVideo(id) {
+  const v = await getOne("videos", id); if (!v) return main().innerHTML = `<div class="empty">${t("notFound")}</div>`;
+  const y = ytId(v.url), u = safeUrl(v.url);
+  main().innerHTML = `<article class="card article"><div class="crumb"><a href="#/videos">${t("videos")}</a></div>
+    <h1>${esc(v.title)}</h1><div class="meta">${esc(v.speaker || "")} · ${fmtDate(v.createdAt)} ${catTag(v.category)}</div>
+    ${y ? `<div class="vframe"><iframe src="https://www.youtube-nocookie.com/embed/${y}" title="${esc(v.title)}" allow="accelerometer; encrypted-media; gyroscope; picture-in-picture; fullscreen" allowfullscreen loading="lazy"></iframe></div>`
+      : u ? `<a class="btn" href="${u}" target="_blank" rel="noopener">${t("watch")}</a>` : ""}
+    ${v.desc ? `<div class="prose">${nl(v.desc)}</div>` : ""}<div class="actions">${delBtn("videos", v)}</div></article><section class="card" id="cm"></section>`;
+  bindDel("videos", id, "#/videos");
+  await comments($("#cm"), "videos", id);
 }
 
 // ---------- books ----------
@@ -461,6 +491,7 @@ function pageAsk() {
 // ---------- add content ----------
 const FORMS = {
   post: { coll: "posts", staff: true, title: "newPost", fields: [{ k: "title" }, { k: "body", type: "textarea", rows: 14 }] },
+  video: { coll: "videos", staff: true, title: "newVideo", fields: [{ k: "title" }, { k: "speaker" }, { k: "url", type: "url", label: "videoUrl" }, { k: "category", type: "select", opts: CATS.videos }, { k: "desc", type: "textarea", opt: true }] },
   audio: { coll: "audios", staff: true, title: "newAudio", fields: [{ k: "title" }, { k: "speaker" }, { k: "url", type: "url", label: "audioUrl" }, { k: "category", type: "select", opts: CATS.audios }, { k: "desc", type: "textarea", opt: true }] },
   book: { coll: "books", staff: true, title: "newBook", fields: [{ k: "title" }, { k: "author" }, { k: "url", type: "url", label: "pdfUrl" }, { k: "cover", type: "url", opt: true }, { k: "category", type: "select", opts: CATS.books }, { k: "desc", type: "textarea", opt: true }] },
   thread: { coll: "threads", staff: false, title: "newThread", fields: [{ k: "title" }, { k: "category", type: "select", opts: CATS.threads }, { k: "body", type: "textarea", rows: 10 }] }
@@ -558,7 +589,7 @@ async function pagePanel() {
   main().innerHTML = `
     <div class="page-head"><h1>${t("panel")}</h1></div>
     <div class="card"><h2>${t("addContent")}</h2><div class="hero-btns">
-      <a class="btn ghost" href="#/new/post">+ ${t("newPost")}</a><a class="btn ghost" href="#/new/audio">+ ${t("newAudio")}</a><a class="btn ghost" href="#/new/book">+ ${t("newBook")}</a></div></div>
+      <a class="btn ghost" href="#/new/post">+ ${t("newPost")}</a><a class="btn ghost" href="#/new/audio">+ ${t("newAudio")}</a><a class="btn ghost" href="#/new/video">+ ${t("newVideo")}</a><a class="btn ghost" href="#/new/book">+ ${t("newBook")}</a></div></div>
     <h2 class="sub">${t("pendingQuestions")} (${qs.length})</h2>
     ${qs.length ? qs.map(q => `<div class="card pq" data-id="${q.id}">
       <div class="meta">${esc(q.name)}${q.showName === false ? ` (${t("hideName")})` : ""} · ${fmtDate(q.createdAt)} ${catTag(q.category)}</div>
