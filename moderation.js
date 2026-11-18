@@ -52,3 +52,19 @@ export function buildPattern(words) {
 
 export const HIDE_AFTER_REPORTS = 3;   // عدد البلاغات التي تُخفي المحتوى تلقائياً
 export const COOLDOWN_SEC = 20;        // ثوانٍ بين كل مشاركة وأخرى لمنع الإغراق
+
+// ===== ضبط التسجيل =====
+// نطاقات البريد المؤقت (Disposable) — تُرفض عند التسجيل، ونفس القائمة مكتوبة في firestore.rules
+export const DISPOSABLE_DOMAINS = [
+  "mailinator.com", "mailinator.net", "guerrillamail.com", "guerrillamail.net", "guerrillamailblock.com", "grr.la", "sharklasers.com",
+  "10minutemail.com", "10minutemail.net", "temp-mail.org", "temp-mail.io", "tempmail.com", "tempmailo.com", "tempmail.net", "tempail.com",
+  "yopmail.com", "yopmail.fr", "yopmail.net", "getnada.com", "nada.email", "trashmail.com", "dispostable.com", "maildrop.cc", "mohmal.com",
+  "emailondeck.com", "fakeinbox.com", "throwawaymail.com", "mintemail.com", "mytemp.email", "burnermail.io", "spamgourmet.com",
+  "mailnesia.com", "mailcatch.com", "inboxkitten.com", "moakt.com", "tmail.ws", "emailfake.com", "tempr.email", "discard.email",
+  "mail.tm", "1secmail.com", "1secmail.net", "1secmail.org", "tempinbox.com", "minuteinbox.com", "mail-temp.com", "mailpoof.com",
+  "luxusmail.org", "fakemail.net", "tempmailaddress.com", "emailtemporanea.com", "33mail.com", "spambox.us", "trbvm.com", "dropmail.me"
+];
+export const isDisposable = email => DISPOSABLE_DOMAINS.includes(String(email || "").toLowerCase().split("@")[1] || "");
+
+// مفتاح الاسم لمنع تكرار الأسماء (يتجاهل التشكيل والمسافات وحالة الحروف)
+export const nameKey = name => normalize(name).replace(/\s+/g, "_").replace(/^_+|_+$/g, "").slice(0, 60);

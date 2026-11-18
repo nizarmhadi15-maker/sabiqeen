@@ -1,15 +1,15 @@
 import { firebaseConfig, SITE, ADMIN_EMAILS } from "./config.js";
 import { I18N } from "./i18n.js";
 import { PAGES } from "./pages.js";
-import { DEFAULT_WORDS, findBad, hasLink, buildPattern, HIDE_AFTER_REPORTS, COOLDOWN_SEC } from "./moderation.js";
+import { DEFAULT_WORDS, findBad, hasLink, buildPattern, HIDE_AFTER_REPORTS, COOLDOWN_SEC, isDisposable, nameKey } from "./moderation.js";
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import {
   getAuth, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signInWithRedirect,
   createUserWithEmailAndPassword, signInWithEmailAndPassword, sendPasswordResetEmail,
-  updateProfile, signOut
+  updateProfile, signOut, sendEmailVerification, reload
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import {
-  getFirestore, collection, doc, addDoc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, arrayUnion,
+  getFirestore, collection, doc, addDoc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, arrayUnion, writeBatch, increment, getCountFromServer,
   query, where, orderBy, limit, serverTimestamp
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
@@ -38,7 +38,9 @@ const isBanned = () => !!user && !isAdmin() && role() === "banned";
 // ---------- auto moderation ----------
 let MOD_WORDS = DEFAULT_WORDS;
 getDoc(doc(db, "settings", "moderation")).then(s => { if (s.exists() && Array.isArray(s.data().words)) MOD_WORDS = s.data().words; }).catch(() => {});
+const needsVerify = () => !!user && !user.emailVerified && !isAdmin();
 function checkContent(...texts) {
+  if (needsVerify()) return t("verifyFirst");
   const all = texts.join(" \n ");
   if (findBad(all, MOD_WORDS)) return t("badWords");
   if (!isSheikh() && hasLink(all)) return t("noLinks");
@@ -50,6 +52,33 @@ function checkContent(...texts) {
   return null;
 }
 const markPosted = () => { try { localStorage.setItem("lastPost", Date.now()); } catch {} };
+
+// ---------- analytics (privacy-friendly, no external services) ----------
+const TZ_CC = {
+  "Asia/Gaza": "PS", "Asia/Hebron": "PS", "Asia/Jerusalem": "JRS", "Asia/Amman": "JO", "Africa/Cairo": "EG", "Asia/Riyadh": "SA",
+  "Asia/Dubai": "AE", "Asia/Qatar": "QA", "Asia/Kuwait": "KW", "Asia/Bahrain": "BH", "Asia/Muscat": "OM", "Asia/Aden": "YE",
+  "Asia/Baghdad": "IQ", "Asia/Damascus": "SY", "Asia/Beirut": "LB", "Africa/Tripoli": "LY", "Africa/Tunis": "TN", "Africa/Algiers": "DZ",
+  "Africa/Casablanca": "MA", "Africa/Khartoum": "SD", "Africa/Nouakchott": "MR", "Africa/Mogadishu": "SO", "Africa/Djibouti": "DJ",
+  "Europe/Istanbul": "TR", "Asia/Tehran": "IR", "Asia/Karachi": "PK", "Asia/Kolkata": "IN", "Asia/Calcutta": "IN", "Asia/Dhaka": "BD",
+  "Asia/Jakarta": "ID", "Asia/Kuala_Lumpur": "MY", "Asia/Singapore": "SG", "Asia/Kabul": "AF", "Asia/Tashkent": "UZ",
+  "Europe/London": "GB", "Europe/Paris": "FR", "Europe/Berlin": "DE", "Europe/Madrid": "ES", "Europe/Rome": "IT", "Europe/Amsterdam": "NL",
+  "Europe/Brussels": "BE", "Europe/Stockholm": "SE", "Europe/Oslo": "NO", "Europe/Copenhagen": "DK", "Europe/Vienna": "AT", "Europe/Zurich": "CH",
+  "Europe/Moscow": "RU", "America/New_York": "US", "America/Chicago": "US", "America/Denver": "US", "America/Los_Angeles": "US", "America/Phoenix": "US",
+  "America/Toronto": "CA", "America/Vancouver": "CA", "America/Sao_Paulo": "BR", "America/Mexico_City": "MX", "Australia/Sydney": "AU", "Australia/Melbourne": "AU",
+  "Africa/Lagos": "NG", "Africa/Nairobi": "KE", "Africa/Johannesburg": "ZA", "Africa/Dakar": "SN", "Asia/Tokyo": "JP", "Asia/Shanghai": "CN"
+};
+const todayId = (d = new Date()) => d.toISOString().slice(0, 10);
+function bump(field) { try { setDoc(doc(db, "stats", todayId()), { [field]: increment(1) }, { merge: true }).catch(() => {}); } catch {} }
+function trackView(page) {
+  try {
+    const day = todayId(), tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "", cc = TZ_CC[tz] || "XX";
+    let isNew = false; try { if (localStorage.getItem("seen") !== day) { localStorage.setItem("seen", day); isNew = true; } } catch {}
+    const dev = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent) ? "mobile" : "desktop";
+    const data = { views: increment(1), pages: { [page || "home"]: increment(1) } };
+    if (isNew) Object.assign(data, { visitors: increment(1), countries: { [cc]: increment(1) }, devices: { [dev]: increment(1) } });
+    setDoc(doc(db, "stats", day), data, { merge: true }).catch(() => {});
+  } catch {}
+}
 const isHidden = x => (x.reporters || []).length >= HIDE_AFTER_REPORTS;
 async function report(path, item, routeHash) {
   if (!requireLogin()) return false;
@@ -75,6 +104,8 @@ const ROUTE_OF = { posts: "posts", audios: "audio", videos: "videos", books: "bo
 
 const ICON = {
   posts: '<path d="M5 4h11l3 3v13H5z"/><path d="M8 10h8M8 14h8M8 18h5"/>',
+  stats: '<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>',
+  donate: '<path d="M12 21s-7-4.4-9.3-9A5.2 5.2 0 0 1 12 6.3 5.2 5.2 0 0 1 21.3 12C19 16.6 12 21 12 21z"/>',
   videos: '<rect x="3" y="5" width="18" height="14" rx="3"/><path d="M10 9.5v5l4.5-2.5z"/>',
   audio: '<path d="M4 14v-2a8 8 0 0 1 16 0v2"/><rect x="3" y="14" width="4" height="6" rx="1"/><rect x="17" y="14" width="4" height="6" rx="1"/>',
   books: '<path d="M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2z"/><path d="M4 21V5"/><path d="M9 7h6"/>',
@@ -130,12 +161,12 @@ function renderShell() {
   document.documentElement.dir = lang === "ar" ? "rtl" : "ltr";
   document.title = siteName();
   $("#brandName").textContent = siteName();
-  $("#footer").innerHTML = `<b>${esc(siteName())}</b> — ${esc(SITE.tagline[lang])}<nav class="foot-links"><a href="#/about">${t("aboutUs")}</a><a href="#/contact">${t("contactUs")}</a><a href="#/terms">${t("terms")}</a><a href="#/privacy">${t("privacy")}</a></nav><small>© ${new Date().getFullYear()} ${t("footer")}</small>`;
+  $("#footer").innerHTML = `<b>${esc(siteName())}</b> — ${esc(SITE.tagline[lang])}<nav class="foot-links"><a href="#/about">${t("aboutUs")}</a><a href="#/donate">${t("donate")}</a><a href="#/contact">${t("contactUs")}</a><a href="#/terms">${t("terms")}</a><a href="#/privacy">${t("privacy")}</a></nav><small>© ${new Date().getFullYear()} ${t("footer")}</small>`;
   const links = [["home", "#/"], ["posts", "#/posts"], ["audio", "#/audio"], ["videos", "#/videos"], ["books", "#/books"], ["forum", "#/forum"], ["fatwa", "#/fatwa"]];
   $("#nav").innerHTML = links.map(([k, h]) => `<a href="${h}" data-k="${k}">${t(k)}</a>`).join("") +
-    `<a href="#/ask" class="nav-ask">${t("ask")}</a>` +
+    `<a href="#/ask" class="nav-ask">${t("ask")}</a>` + `<a href="#/donate" class="nav-donate" data-k="donate">${t("donate")}</a>` +
     (user && isSheikh() ? `<a href="#/panel" class="nav-staff" data-k="panel">${t("panel")}</a>` : "") +
-    (user && isAdmin() ? `<a href="#/admin" class="nav-staff" data-k="admin">${t("admin")}</a>` : "");
+    (user && isAdmin() ? `<a href="#/admin" class="nav-staff" data-k="admin">${t("admin")}</a><a href="#/stats" class="nav-staff" data-k="stats">${t("stats")}</a>` : "");
   $("#langBtn").textContent = lang === "ar" ? "EN" : "ع";
   $("#userbox").innerHTML = !authReady ? "" : user
     ? `${isSheikh() ? `<a class="btn ghost sm" href="#/panel">${t("panel")}</a>` : ""}${isAdmin() ? `<a class="btn ghost sm" href="#/admin">${t("admin")}</a>` : ""}
@@ -156,6 +187,7 @@ async function route() {
   main().innerHTML = `<div class="loading"><span class="spin"></span>${t("loading")}</div>`;
   window.scrollTo(0, 0);
   if (!authReady) return;
+  if (!isAdmin()) trackView(p);
   try {
     const r = await (async () => {
       switch (p) {
@@ -175,6 +207,8 @@ async function route() {
         case "edit": return pageNew(id, extra);
         case "about": case "terms": case "privacy": return pageStatic(p);
         case "contact": return pageContact();
+        case "donate": return pageDonate();
+        case "stats": return pageStats();
         default: main().innerHTML = `<div class="empty">${t("notFound")}</div>`;
       }
     })();
@@ -187,6 +221,33 @@ async function route() {
 window.addEventListener("hashchange", route);
 
 // ---------- auth ----------
+// أسماء فريدة: كل اسم محجوز في usernames/{مفتاح الاسم}
+async function nameOwner(name) { const s = await getDoc(doc(db, "usernames", nameKey(name))); return s.exists() ? s.data().uid : null; }
+async function freeName(base, uid) {
+  base = (base || "").trim() || "عضو";
+  for (let i = 1; i <= 50; i++) {
+    const n = i === 1 ? base : `${base} ${i}`, o = await nameOwner(n);
+    if (!o || o === uid) return n;
+  }
+  return `${base} ${Date.now() % 100000}`;
+}
+// إنشاء ملف المستخدم مع حجز الاسم في عملية واحدة
+async function createProfile(u, name) {
+  const b = writeBatch(db), key = nameKey(name);
+  b.set(doc(db, "usernames", key), { uid: u.uid });
+  b.set(doc(db, "users", u.uid), { name, nameKey: key, email: u.email || "", photo: u.photoURL || "", role: "user", createdAt: serverTimestamp() });
+  await b.commit(); bump("signups");
+}
+// تغيير الاسم: حجز الجديد وتحرير القديم
+async function changeName(newName) {
+  const key = nameKey(newName), old = profile?.nameKey, b = writeBatch(db);
+  if (key !== old) {
+    b.set(doc(db, "usernames", key), { uid: user.uid });
+    if (old) b.delete(doc(db, "usernames", old));
+  }
+  b.update(doc(db, "users", user.uid), { name: newName, nameKey: key });
+  await b.commit();
+}
 onAuthStateChanged(auth, async u => {
   user = u; profile = null;
   if (u) {
@@ -194,10 +255,15 @@ onAuthStateChanged(auth, async u => {
       const ref = doc(db, "users", u.uid);
       let s = await getDoc(ref);
       if (!s.exists()) {
-        await setDoc(ref, { name: u.displayName || (u.email || "").split("@")[0], email: u.email || "", photo: u.photoURL || "", role: "user", createdAt: serverTimestamp() });
+        if (isDisposable(u.email)) { toast(t("tempEmail"), true); await signOut(auth); return; }
+        await createProfile(u, await freeName(u.displayName || (u.email || "").split("@")[0], u.uid));
         s = await getDoc(ref);
       }
       profile = s.data();
+      // الحسابات القديمة: حجز أسمائها تلقائياً
+      if (!profile.nameKey) {
+        try { const o = await nameOwner(profile.name); if (!o || o === u.uid) { profile = { ...profile }; await changeName(profile.name); profile.nameKey = nameKey(profile.name); } } catch (e) { console.warn(e); }
+      }
     } catch (e) { console.error(e); }
   }
   authReady = true;
@@ -248,12 +314,18 @@ function pageLogin() {
       try {
         if (mode === "reset") { await sendPasswordResetEmail(auth, f.email.trim()); toast(t("resetSent")); mode = "login"; draw(); return; }
         if (mode === "register") {
-          if (findBad(f.name, MOD_WORDS)) { toast(t("badWords"), true); btn.disabled = false; return; }
-          const cred = await createUserWithEmailAndPassword(auth, f.email.trim(), f.pw);
           const name = f.name.trim();
+          if (findBad(name, MOD_WORDS)) { toast(t("badWords"), true); btn.disabled = false; return; }
+          if (nameKey(name).length < 2) { toast(t("nameShort"), true); btn.disabled = false; return; }
+          if (isDisposable(f.email)) { toast(t("tempEmail"), true); btn.disabled = false; return; }
+          if (await nameOwner(name)) { toast(t("nameTaken"), true); btn.disabled = false; return; }
+          const cred = await createUserWithEmailAndPassword(auth, f.email.trim(), f.pw);
           await updateProfile(cred.user, { displayName: name });
-          await setDoc(doc(db, "users", cred.user.uid), { name, email: cred.user.email, photo: "", role: "user", createdAt: serverTimestamp() });
-          profile = { ...(profile || {}), name, role: "user" };
+          try { await createProfile(cred.user, name); }
+          catch (err) { await createProfile(cred.user, await freeName(name, cred.user.uid)); }
+          const ps = await getDoc(doc(db, "users", cred.user.uid)); profile = ps.data();
+          try { await sendEmailVerification(cred.user); } catch {}
+          toast(t("verifySent"));
           renderShell();
         } else {
           await signInWithEmailAndPassword(auth, f.email.trim(), f.pw);
@@ -308,7 +380,7 @@ async function comments(el, coll, id, kind = "comments") {
     try {
       const data = { text, uid: user.uid, name: myName(), photo: user.photoURL || "", createdAt: serverTimestamp() };
       if (isSheikh()) data.badge = "sheikh";
-      await addDoc(col, data); markPosted(); ta.value = ""; await load();
+      await addDoc(col, data); markPosted(); bump("comments"); ta.value = ""; await load();
     } catch (err) { toast(errMsg(err), true); }
     btn.disabled = false;
   };
@@ -529,7 +601,7 @@ function pageAsk() {
         title: f.title.trim(), body: f.body.trim(), category: f.category, uid: user.uid, name: myName(),
         showName: !f.hide, status: "pending", createdAt: serverTimestamp()
       });
-      markPosted(); toast(t("askSent")); location.hash = "#/profile";
+      markPosted(); bump("questions"); toast(t("askSent")); location.hash = "#/profile";
     } catch (err) { toast(errMsg(err), true); e.target.querySelector("button").disabled = false; }
   };
 }
@@ -573,7 +645,7 @@ async function pageNew(type, editId) {
         toast(t("saved")); location.hash = `#/${ROUTE_OF[F.coll]}/${editId}`;
       } else {
         Object.assign(data, { uid: user.uid, name: myName(), photo: user.photoURL || "", createdAt: serverTimestamp() });
-        const r = await addDoc(collection(db, F.coll), data); markPosted(); location.hash = `#/${ROUTE_OF[F.coll]}/${r.id}`;
+        const r = await addDoc(collection(db, F.coll), data); markPosted(); bump(F.coll === "threads" ? "threads" : "content"); location.hash = `#/${ROUTE_OF[F.coll]}/${r.id}`;
       }
     } catch (err) { toast(errMsg(err), true); e.target.querySelector("button").disabled = false; }
   };
@@ -604,6 +676,83 @@ function pageContact() {
   };
 }
 
+// ---------- stats dashboard ----------
+const CC_NAME = { PS: ["فلسطين", "Palestine", "🇵🇸"], JRS: ["توقيت القدس", "Jerusalem time", "🕌"], JO: ["الأردن", "Jordan", "🇯🇴"], EG: ["مصر", "Egypt", "🇪🇬"], SA: ["السعودية", "Saudi Arabia", "🇸🇦"],
+  AE: ["الإمارات", "UAE", "🇦🇪"], QA: ["قطر", "Qatar", "🇶🇦"], KW: ["الكويت", "Kuwait", "🇰🇼"], BH: ["البحرين", "Bahrain", "🇧🇭"], OM: ["عُمان", "Oman", "🇴🇲"], YE: ["اليمن", "Yemen", "🇾🇪"],
+  IQ: ["العراق", "Iraq", "🇮🇶"], SY: ["سوريا", "Syria", "🇸🇾"], LB: ["لبنان", "Lebanon", "🇱🇧"], LY: ["ليبيا", "Libya", "🇱🇾"], TN: ["تونس", "Tunisia", "🇹🇳"], DZ: ["الجزائر", "Algeria", "🇩🇿"],
+  MA: ["المغرب", "Morocco", "🇲🇦"], SD: ["السودان", "Sudan", "🇸🇩"], MR: ["موريتانيا", "Mauritania", "🇲🇷"], SO: ["الصومال", "Somalia", "🇸🇴"], DJ: ["جيبوتي", "Djibouti", "🇩🇯"],
+  TR: ["تركيا", "Turkey", "🇹🇷"], IR: ["إيران", "Iran", "🇮🇷"], PK: ["باكستان", "Pakistan", "🇵🇰"], IN: ["الهند", "India", "🇮🇳"], BD: ["بنغلاديش", "Bangladesh", "🇧🇩"],
+  ID: ["إندونيسيا", "Indonesia", "🇮🇩"], MY: ["ماليزيا", "Malaysia", "🇲🇾"], SG: ["سنغافورة", "Singapore", "🇸🇬"], AF: ["أفغانستان", "Afghanistan", "🇦🇫"], UZ: ["أوزبكستان", "Uzbekistan", "🇺🇿"],
+  GB: ["بريطانيا", "UK", "🇬🇧"], FR: ["فرنسا", "France", "🇫🇷"], DE: ["ألمانيا", "Germany", "🇩🇪"], ES: ["إسبانيا", "Spain", "🇪🇸"], IT: ["إيطاليا", "Italy", "🇮🇹"], NL: ["هولندا", "Netherlands", "🇳🇱"],
+  BE: ["بلجيكا", "Belgium", "🇧🇪"], SE: ["السويد", "Sweden", "🇸🇪"], NO: ["النرويج", "Norway", "🇳🇴"], DK: ["الدنمارك", "Denmark", "🇩🇰"], AT: ["النمسا", "Austria", "🇦🇹"], CH: ["سويسرا", "Switzerland", "🇨🇭"],
+  RU: ["روسيا", "Russia", "🇷🇺"], US: ["أمريكا", "USA", "🇺🇸"], CA: ["كندا", "Canada", "🇨🇦"], BR: ["البرازيل", "Brazil", "🇧🇷"], MX: ["المكسيك", "Mexico", "🇲🇽"], AU: ["أستراليا", "Australia", "🇦🇺"],
+  NG: ["نيجيريا", "Nigeria", "🇳🇬"], KE: ["كينيا", "Kenya", "🇰🇪"], ZA: ["جنوب أفريقيا", "South Africa", "🇿🇦"], SN: ["السنغال", "Senegal", "🇸🇳"], JP: ["اليابان", "Japan", "🇯🇵"], CN: ["الصين", "China", "🇨🇳"],
+  XX: ["دول أخرى", "Other", "🌍"] };
+const ccLabel = c => { const n = CC_NAME[c] || CC_NAME.XX; return `${n[2]} ${lang === "ar" ? n[0] : n[1]}`; };
+async function pageStats() {
+  if (!requireLogin()) return; if (!isAdmin()) return denied();
+  let range = +(sessionStorage.getItem("statsRange") || 28);
+  const days = Array.from({ length: 90 }, (_, i) => { const d = new Date(); d.setUTCDate(d.getUTCDate() - (89 - i)); return todayId(d); });
+  const docs = await Promise.all(days.map(id => getDoc(doc(db, "stats", id)).then(s => ({ id, ...(s.exists() ? s.data() : {}) })).catch(() => ({ id }))));
+  const counts = {};
+  await Promise.all(["users", "posts", "audios", "videos", "books", "threads"].map(c => getCountFromServer(collection(db, c)).then(r => counts[c] = r.data().count).catch(() => counts[c] = "—")));
+  await getCountFromServer(query(collection(db, "questions"), where("status", "==", "answered"))).then(r => counts.answered = r.data().count).catch(() => counts.answered = "—");
+  await getCountFromServer(query(collection(db, "questions"), where("status", "==", "pending"))).then(r => counts.pending = r.data().count).catch(() => counts.pending = "—");
+  const draw = () => {
+    const cur = docs.slice(-range), prev = docs.slice(-2 * range, -range);
+    const sum = (arr, f) => arr.reduce((a, d) => a + (d[f] || 0), 0);
+    const merge = (arr, f) => { const o = {}; arr.forEach(d => Object.entries(d[f] || {}).forEach(([k, v]) => o[k] = (o[k] || 0) + v)); return Object.entries(o).sort((a, b) => b[1] - a[1]); };
+    const delta = f => { const a = sum(cur, f), b = sum(prev, f); if (!b) return a ? `<span class="up">▲ ${t("new")}</span>` : ""; const p = Math.round((a - b) / b * 100); return `<span class="${p >= 0 ? "up" : "down"}">${p >= 0 ? "▲" : "▼"} ${Math.abs(p)}%</span>`; };
+    const today = docs[docs.length - 1];
+    const kpis = [["views", "statViews"], ["visitors", "statVisitors"], ["signups", "statSignups"], ["comments", "statComments"], ["questions", "statQuestions"], ["threads", "statThreads"]];
+    const maxV = Math.max(1, ...cur.map(d => d.views || 0));
+    const W = 760, H = 180, bw = W / cur.length;
+    const bars = cur.map((d, i) => { const h = (d.views || 0) / maxV * (H - 20), hv = (d.visitors || 0) / maxV * (H - 20);
+      return `<g><title>${d.id}: ${d.views || 0} ${t("statViews")} · ${d.visitors || 0} ${t("statVisitors")}</title><rect x="${i * bw + 1}" y="${H - h}" width="${Math.max(1, bw - 2)}" height="${h}" rx="2" class="bar"/><rect x="${i * bw + bw * .25}" y="${H - hv}" width="${Math.max(1, bw * .5 - 1)}" height="${hv}" rx="2" class="bar2"/></g>`; }).join("");
+    const listBox = (rows, label, total) => rows.length ? rows.slice(0, 10).map(([k, v]) => `<div class="srow"><span>${label(k)}</span><b>${v}</b><i style="width:${Math.round(v / total * 100)}%"></i></div>`).join("") : `<div class="empty sm">${t("noData")}</div>`;
+    const cs = merge(cur, "countries"), ps = merge(cur, "pages"), ds = merge(cur, "devices");
+    const vTot = sum(cur, "visitors") || 1, pTot = sum(cur, "views") || 1;
+    main().innerHTML = `<div class="page-head"><h1>${icon("stats", "ic")} ${t("stats")}</h1>
+        <div class="chips">${[7, 28, 90].map(r => `<button class="chip${r === range ? " on" : ""}" data-r="${r}">${t("lastDays").replace("{n}", r)}</button>`).join("")}</div></div>
+      <div class="kpis">${kpis.map(([f, k]) => `<div class="kpi"><small>${t(k)}</small><b>${sum(cur, f).toLocaleString()}</b>${delta(f)}</div>`).join("")}</div>
+      <div class="card"><div class="page-head"><h3>${t("statViews")} / ${t("statVisitors")}</h3><small class="muted">${t("today")}: ${today.views || 0} · ${today.visitors || 0}</small></div>
+        <svg class="chart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">${bars}</svg>
+        <div class="chart-x"><span>${cur[0].id}</span><span>${cur[cur.length - 1].id}</span></div>
+        <div class="legend"><span><i class="bar"></i>${t("statViews")}</span><span><i class="bar2"></i>${t("statVisitors")}</span></div></div>
+      <div class="stats-grid">
+        <div class="card"><h3>${t("statCountries")}</h3>${listBox(cs, ccLabel, vTot)}</div>
+        <div class="card"><h3>${t("statPages")}</h3>${listBox(ps, k => t(k) || k, pTot)}</div>
+        <div class="card"><h3>${t("statDevices")}</h3>${listBox(ds, k => k === "mobile" ? "📱 " + t("mobile") : "💻 " + t("desktop"), vTot)}</div>
+        <div class="card"><h3>${t("statContent")}</h3>
+          ${[["users", "statMembers"], ["posts", "posts"], ["videos", "videos"], ["audios", "audio"], ["books", "books"], ["threads", "forum"], ["answered", "answered"], ["pending", "pending"]]
+            .map(([c, k]) => `<div class="srow"><span>${t(k)}</span><b>${counts[c]}</b></div>`).join("")}</div>
+      </div>
+      <p class="muted small-note">${t("statsNote")}</p>`;
+    $$(".chip[data-r]").forEach(b => b.onclick = () => { range = +b.dataset.r; sessionStorage.setItem("statsRange", range); draw(); });
+  };
+  draw();
+}
+
+// ---------- donate ----------
+async function getDonate() { const s = await getDoc(doc(db, "settings", "donate")); return s.exists() ? s.data() : { methods: [], message: "" }; }
+async function pageDonate() {
+  const d = await getDonate(), methods = (d.methods || []).filter(m => m.title && m.details);
+  main().innerHTML = `<section class="donate-hero"><div>${icon("donate", "ic big")}</div><h1>${t("donateTitle")}</h1>
+      <p>${d.message ? nl(d.message) : t("donateIntro")}</p>
+      <blockquote>${t("donateVerse")}</blockquote></section>
+    <div class="donate-grid">
+      ${methods.length ? methods.map((m, i) => `<div class="card dmethod"><h3>${esc(m.title)}</h3>
+        <div class="dval" dir="auto">${nl(m.details)}</div>
+        ${m.note ? `<p class="muted">${nl(m.note)}</p>` : ""}
+        <button class="btn sm" data-copy="${i}">${t("copy")}</button></div>`).join("")
+      : `<div class="card dmethod soon"><h3>${t("donateSoon")}</h3><p class="muted">${t("donateSoonNote")}</p><a class="btn ghost sm" href="#/contact">${t("contactUs")}</a></div>`}
+    </div>
+    <div class="card narrow"><h3>${t("donateWhere")}</h3><ul class="dlist">${t("donateUses")}</ul></div>`;
+  $$("[data-copy]").forEach(b => b.onclick = async () => {
+    try { await navigator.clipboard.writeText(methods[+b.dataset.copy].details); toast(t("copied")); } catch { toast(t("copyFail"), true); }
+  });
+}
+
 // ---------- profile ----------
 async function pageProfile() {
   if (!requireLogin()) return;
@@ -613,6 +762,7 @@ async function pageProfile() {
   main().innerHTML = `<div class="card narrow profile">
       <div class="author-row">${avatar(myName(), user.photoURL, 56)}<div><h1>${esc(myName())}</h1><div class="meta" dir="ltr">${esc(user.email || "")}</div>
       <span class="badge ${r}">${t("role_" + r)}</span></div></div>
+      ${needsVerify() ? `<div class="verify-box"><p>${t("verifyBox")}</p><div class="row-btns"><button class="btn sm" id="vDone">${t("verifyDone")}</button><button class="btn ghost sm" id="vResend">${t("verifyResend")}</button></div></div>` : ""}
       <form class="form inline" id="nameForm"><label>${t("name")}<input name="name" value="${esc(myName())}" required maxlength="60"></label><button class="btn sm">${t("save")}</button></form>
       <button class="btn ghost sm danger" id="outBtn">${t("logout")}</button>
     </div>
@@ -620,12 +770,18 @@ async function pageProfile() {
       ${qs.length ? `<div class="list">${qs.map(q => `<a class="item row" href="#/fatwa/${q.id}"><h3>${esc(q.title || excerpt(q.body, 80))}</h3>
         <span class="status ${q.status}">${t(q.status)}</span></a>`).join("")}</div>` : `<div class="empty sm">${t("empty")}</div>`}</div>`;
   $("#outBtn").onclick = async () => { await signOut(auth); location.hash = "#/"; };
+  const vd = $("#vDone"); if (vd) vd.onclick = async () => {
+    await reload(user); await user.getIdToken(true);
+    if (user.emailVerified) { toast(t("verifyOk")); renderShell(); pageProfile(); } else toast(t("verifyNot"), true);
+  };
+  const vr = $("#vResend"); if (vr) vr.onclick = async () => { try { await sendEmailVerification(user); toast(t("verifySent")); } catch (e) { toast(errMsg(e), true); } };
   $("#nameForm").onsubmit = async e => {
     e.preventDefault(); const name = e.target.name.value.trim();
     if (findBad(name, MOD_WORDS)) return toast(t("badWords"), true);
     try {
-      await updateDoc(doc(db, "users", user.uid), { name }); await updateProfile(user, { displayName: name });
-      profile = { ...profile, name }; renderShell(); toast(t("saved")); pageProfile();
+      if (nameKey(name) !== profile?.nameKey) { const o = await nameOwner(name); if (o && o !== user.uid) return toast(t("nameTaken"), true); }
+      await changeName(name); await updateProfile(user, { displayName: name });
+      profile = { ...profile, name, nameKey: nameKey(name) }; renderShell(); toast(t("saved")); pageProfile();
     } catch (err) { toast(errMsg(err), true); }
   };
 }
@@ -669,6 +825,29 @@ async function loadInbox() {
     try { await deleteDoc(doc(db, "messages", b.dataset.mdel)); loadInbox(); } catch (e) { toast(errMsg(e), true); }
   });
 }
+async function loadDonateEditor() {
+  const box = $("#donEdit"); if (!box) return;
+  const d = await getDonate(); let rows = (d.methods || []).slice();
+  const draw = () => {
+    box.innerHTML = `<p class="muted">${t("donateAdminHelp")}</p>
+      <label class="form"><span>${t("donateMsg")}</span><textarea id="donMsg" rows="3" placeholder="${t("donateIntro")}">${esc(d.message || "")}</textarea></label>
+      <div id="donRows">${rows.map((m, i) => `<div class="drow" data-i="${i}">
+        <input data-f="title" placeholder="${t("dTitle")}" value="${esc(m.title || "")}">
+        <textarea data-f="details" rows="2" dir="auto" placeholder="${t("dDetails")}">${esc(m.details || "")}</textarea>
+        <input data-f="note" placeholder="${t("dNote")}" value="${esc(m.note || "")}">
+        <button class="link danger" data-rm="${i}">${t("delete")}</button></div>`).join("")}</div>
+      <div class="row-btns"><button class="btn ghost sm" id="donAdd">+ ${t("dAdd")}</button><button class="btn" id="donSave">${t("save")}</button></div>`;
+    const sync = () => $$(".drow", box).forEach(r => { const i = +r.dataset.i; $$("[data-f]", r).forEach(inp => rows[i][inp.dataset.f] = inp.value.trim()); });
+    $("#donAdd").onclick = () => { sync(); d.message = $("#donMsg").value; rows.push({ title: "", details: "", note: "" }); draw(); };
+    $$("[data-rm]", box).forEach(b => b.onclick = () => { sync(); d.message = $("#donMsg").value; rows.splice(+b.dataset.rm, 1); draw(); });
+    $("#donSave").onclick = async () => {
+      sync(); const methods = rows.filter(m => m.title && m.details);
+      try { await setDoc(doc(db, "settings", "donate"), { methods, message: $("#donMsg").value.trim(), updatedAt: serverTimestamp() }); toast(t("saved")); }
+      catch (e) { toast(errMsg(e), true); }
+    };
+  };
+  draw();
+}
 async function loadFlags() {
   const box = $("#flags"); if (!box) return;
   const fl = await latest("flags", 100);
@@ -691,17 +870,19 @@ async function loadFlags() {
 async function pageAdmin() {
   if (!requireLogin()) return; if (!isAdmin()) return denied();
   const users = await latest("users", 500);
-  main().innerHTML = `<div class="page-head"><h1>${t("admin")} — ${t("users")} (${users.length})</h1></div>
+  main().innerHTML = `<div class="page-head"><h1>${t("admin")} — ${t("users")} (${users.length})</h1><a class="btn gold" href="#/stats">${icon("stats", "ic sm")} ${t("stats")}</a></div>
     <div class="toolbar"><input class="search" type="search" placeholder="${t("searchUsers")}"></div>
     <div class="card"><table class="tbl"><tbody id="urows"></tbody></table></div>
     <h2 class="sub">${t("flagged")}</h2><div id="flags" class="list"></div>
     <h2 class="sub">${t("inbox")}</h2><div id="inbox" class="list"></div>
+    <h2 class="sub">${t("donateSettings")}</h2>
+    <div class="card" id="donEdit"></div>
     <h2 class="sub">${t("moderation")}</h2>
     <div class="card"><p class="muted">${t("bannedWordsHelp")}</p>
       <textarea id="modWords" rows="10" dir="auto">${esc(MOD_WORDS.join("\n"))}</textarea>
       <div class="row-btns" style="margin-top:10px"><button class="btn" id="saveWords">${t("save")}</button>
       <small class="muted">${t("autoRules").replace("{n}", HIDE_AFTER_REPORTS).replace("{s}", COOLDOWN_SEC)}</small></div></div>`;
-  loadInbox(); loadFlags();
+  loadInbox(); loadFlags(); loadDonateEditor();
   $("#saveWords").onclick = async () => {
     const words = [...new Set($("#modWords").value.split(/\n+/).map(w => w.trim()).filter(Boolean))];
     try { await setDoc(doc(db, "settings", "moderation"), { words, pattern: buildPattern(words), updatedAt: serverTimestamp() }); MOD_WORDS = words; toast(t("saved")); }
