@@ -81,7 +81,34 @@ service cloud.firestore {
     match /posts/{id}  { allow read: if true; allow create, update, delete: if isSheikh(); }
     match /audios/{id} { allow read: if true; allow create, update, delete: if isSheikh(); }
     match /videos/{id} { allow read: if true; allow create, update, delete: if isSheikh(); }
-    match /books/{id}  { allow read: if true; allow create, update, delete: if isSheikh(); }
+    // الكتب: أي عضو ينشر كتاباً بعد إكمال بيانات الناشر، ويبقى «بانتظار المراجعة» حتى يعتمده شيخ أو المدير
+    function bookOk() {
+      let d = request.resource.data;
+      return txt('title', 200) && txt('author', 150) && txt('url', 1500)
+        && d.desc is string && d.desc.size() >= 50 && d.desc.size() <= 5000
+        && clean('title') && clean('desc') && clean('author') && noLinks('desc');
+    }
+    match /books/{id} {
+      allow read: if resource == null || resource.data.get('status', 'published') == 'published' || isSheikh()
+        || (signedIn() && resource.data.uid == request.auth.uid);
+      allow create: if isSheikh()
+        || (ownsNew() && request.resource.data.status == 'pending' && bookOk()
+            && exists(/databases/$(database)/documents/publishers/$(request.auth.uid)));
+      allow update: if isSheikh()
+        || (signedIn() && active() && resource.data.uid == request.auth.uid && resource.data.status == 'pending'
+            && request.resource.data.status == 'pending' && request.resource.data.uid == resource.data.uid && bookOk());
+      allow delete: if isSheikh() || (signedIn() && resource.data.uid == request.auth.uid);
+    }
+
+    // بيانات الناشر العامة (الاسم والبلد والنبذة فقط) — رقم الجوال ومكان الإقامة وتاريخ الميلاد تبقى في users (خاصة)
+    match /publishers/{uid} {
+      allow read: if true;
+      allow create, update: if signedIn() && request.auth.uid == uid && active()
+        && request.resource.data.keys().hasOnly(['name', 'country', 'bio', 'updatedAt'])
+        && txt('name', 60) && txt('country', 4) && txt('bio', 600) && request.resource.data.bio.size() >= 20
+        && clean('bio') && noLinks('bio');
+      allow delete: if isAdmin();
+    }
 
     // المنتدى: أي عضو مسجّل يكتب موضوعاً
     match /threads/{id} {

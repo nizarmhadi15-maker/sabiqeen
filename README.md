@@ -24,3 +24,10 @@
 Firebase Storage صار يحتاج بطاقة، لذلك الموقع يأخذ **روابط**:
 - archive.org: ارفع الملف ثم انسخ رابط التحميل المباشر (ينتهي بـ .mp3 أو .pdf)
 - أو مستودع GitHub منفصل للملفات (حتى 100MB للملف)
+
+## الأرشفة في Google (روابط عادية + صفحات جاهزة)
+- الروابط أصبحت عادية مثل `sabiqeen.com/fatwa/ID` بدل `#/`، والروابط القديمة تتحوّل تلقائياً.
+- ملف `.github/workflows/pages.yml` يشغّل `scripts/build.mjs` عند كل رفع وكل ساعة:
+  يجلب المحتوى العام من Firestore ويبني صفحة HTML لكل مقالة/فتوى/صوت/فيديو/كتاب/موضوع + `sitemap.xml`.
+- إعداد GitHub Pages: Source = **GitHub Actions** (وليس Deploy from a branch)، و Enforce HTTPS مفعّل.
+- لتحديث فوري بعد إضافة محتوى: Actions ← Build & deploy site ← Run workflow.

@@ -98,8 +98,15 @@ const CATS = {
   threads: ["general", "quran", "hadith", "fiqh", "seerah", "other"],
   audios: ["quran", "lectures", "khutab", "lessons"],
   videos: ["lectures", "khutab", "lessons", "quran"],
-  books: ["quran_sci", "hadith", "fiqh", "aqeedah", "seerah", "other"]
+  books: ["quran_sci", "hadith", "aqeedah", "fiqh", "seerah", "tazkiya", "lugha", "family", "dawah", "other"]
 };
+const SUBCATS = {
+  quran_sci: ["tafsir", "tajweed", "ulum_quran", "masahif"], hadith: ["hadith_mutun", "hadith_shuruh", "mustalah", "rijal"],
+  aqeedah: ["tawheed", "asma_sifat", "firaq", "iman"], fiqh: ["ibadat", "muamalat", "usul_fiqh", "qawaid", "fatawa_books"],
+  seerah: ["seerah_nabawiya", "sahaba", "tarikh", "tarajim"], tazkiya: ["raqaiq", "akhlaq", "adhkar"],
+  lugha: ["nahw", "balagha", "adab_arabi", "maajim"], family: ["zawaj", "tarbiya", "marah"], dawah: ["dawah_gen", "adyan", "mawaiz"], other: ["general"]
+};
+const BOOK_LANGS = ["ar", "en", "fr", "tr", "ur", "id", "ms", "fa", "other"];
 const ROUTE_OF = { posts: "posts", audios: "audio", videos: "videos", books: "books", threads: "forum", questions: "fatwa" };
 
 const ICON = {
@@ -146,6 +153,10 @@ const sheikhBadge = r => r === "sheikh" || r === "admin" ? `<span class="badge">
 async function latest(coll, n = 50) {
   const s = await getDocs(query(collection(db, coll), orderBy("createdAt", "desc"), limit(n)));
   return s.docs.map(d => ({ id: d.id, ...d.data() }));
+}
+async function publishedBooks(n = 300) {
+  const s = await getDocs(query(collection(db, "books"), where("status", "==", "published"), limit(1000)));
+  return s.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => ms(b.createdAt) - ms(a.createdAt)).slice(0, n);
 }
 async function answeredFatwas(n = 300) {
   const s = await getDocs(query(collection(db, "questions"), where("status", "==", "answered"), limit(500)));
@@ -202,6 +213,7 @@ async function route() {
         case "ask": return pageAsk();
         case "login": return pageLogin();
         case "profile": return pageProfile();
+        case "publisher": return pagePublisher();
         case "panel": return pagePanel();
         case "admin": return pageAdmin();
         case "new": return pageNew(id);
@@ -443,7 +455,8 @@ const meta = (name, ts, extra = "") => `<div class="meta">${esc(name || "")}${na
 
 const TYPE_OF = { posts: "post", audios: "audio", videos: "video", books: "book", threads: "thread" };
 function delBtn(coll, item) {
-  const can = user && !isBanned() && (isAdmin() || (coll !== "threads" ? isSheikh() : item.uid === user.uid));
+  const own = user && item.uid === user.uid;
+  const can = user && !isBanned() && (isAdmin() || (coll === "threads" ? own : coll === "books" ? isSheikh() || (own && item.status === "pending") : isSheikh()));
   return can ? `<a class="btn ghost sm" href="/edit/${TYPE_OF[coll]}/${item.id}">${t("edit")}</a><button class="btn ghost sm danger" id="delItem">${t("delete")}</button>` : "";
 }
 function bindDel(coll, id, back) {
@@ -457,7 +470,7 @@ function bindDel(coll, id, back) {
 // ---------- home ----------
 async function pageHome() {
   const [posts, audios, books, fats, threads, videos] = await Promise.all([
-    latest("posts", 3), latest("audios", 4), latest("books", 6), answeredFatwas(4), latest("threads", 4), latest("videos", 4)]);
+    latest("posts", 3), latest("audios", 4), publishedBooks(6), answeredFatwas(4), latest("threads", 4), latest("videos", 4)]);
   const secs = [["posts", "/posts", "secPosts"], ["audio", "/audio", "secAudio"], ["videos", "/videos", "secVideos"], ["books", "/books", "secBooks"], ["forum", "/forum", "secForum"], ["fatwa", "/fatwa", "secFatwa"]];
   const block = (key, href, html) => `<section class="block"><div class="block-head"><h2>${t(key)}</h2><a href="${href}">${t("viewAll")} ←</a></div>${html}</section>`;
   main().innerHTML = `
@@ -549,20 +562,173 @@ async function viewVideo(id) {
 const cover = b => safeUrl(b.cover) ? `<img src="${safeUrl(b.cover)}" alt="" loading="lazy">` : `<div class="nocover">${icon("books")}<span>${esc(b.title)}</span></div>`;
 const bookItem = b => `<a class="book" href="/books/${b.id}"><div class="cv">${cover(b)}</div><h3>${esc(b.title)}</h3><small>${esc(b.author || "")}</small></a>`;
 async function listBooks() {
-  const items = await latest("books", 300);
-  listPage({ titleKey: "books", items, render: bookItem, cats: CATS.books, wrap: "bookgrid", action: isSheikh() ? { href: "/new/book", label: "+ " + t("newBook") } : null });
+  const items = await publishedBooks(1000);
+  listPage({ titleKey: "books", items, render: bookItem, cats: CATS.books, wrap: "bookgrid", action: isBanned() ? null : { href: "/new/book", label: "+ " + t("publishBook") } });
 }
+const subTag = c => c ? `<span class="tag soft">${t("sub_" + c)}</span>` : "";
+const isCloudPdf = u => /res\.cloudinary\.com\/.+\/image\/upload\/.+\.pdf(\?.*)?$/i.test(u || "");
+const dlUrl = u => /res\.cloudinary\.com\/.+\/(image|raw)\/upload\//.test(u || "") ? u.replace(/\/(image|raw)\/upload\//, "/$1/upload/fl_attachment/") : u;
+const readUrl = b => b.fileType === "doc" ? `https://docs.google.com/viewer?url=${encodeURIComponent(b.url)}` : b.url;
 async function viewBook(id) {
   const b = await getOne("books", id); if (!b) return main().innerHTML = `<div class="empty">${t("notFound")}</div>`;
-  const u = safeUrl(b.url);
+  const u = safeUrl(b.url), pending = b.status === "pending";
+  let pub = null; try { if (b.uid) { const ps = await getDoc(doc(db, "publishers", b.uid)); if (ps.exists()) pub = ps.data(); } } catch {}
+  const x = b.extra || {}, extraRows = [["pages", x.pages], ["house", x.house], ["year", x.year], ["edition", x.edition]].filter(r => r[1]);
   main().innerHTML = `<article class="card article book-view"><div class="crumb"><a href="/books">${t("books")}</a></div>
+    ${pending ? `<div class="verify-box"><p>${t("bookPending")}</p>${isSheikh() ? `<button class="btn sm" id="apBtn">${t("approve")}</button>` : ""}</div>` : ""}
     <div class="bv"><div class="cv">${cover(b)}</div><div>
-      <h1>${esc(b.title)}</h1><div class="meta">${esc(b.author || "")} ${catTag(b.category)}</div>
+      <h1>${esc(b.title)}</h1><div class="meta">${t("authorBy")} <b>${esc(b.author || "")}</b> ${catTag(b.category)} ${subTag(b.subcat)}</div>
+      <table class="binfo">${b.lang ? `<tr><th>${t("bookLang")}</th><td>${t("lang_" + b.lang)}</td></tr>` : ""}
+        ${extraRows.map(([k, v]) => `<tr><th>${t(k)}</th><td>${esc(v)}</td></tr>`).join("")}
+        <tr><th>${t("publishedOn")}</th><td>${fmtDate(b.createdAt)}</td></tr></table>
       ${b.desc ? `<div class="prose">${nl(b.desc)}</div>` : ""}
-      ${u ? `<div class="hero-btns"><a class="btn" href="${u}" target="_blank" rel="noopener">${t("read")}</a><a class="btn ghost" href="${u}" download target="_blank" rel="noopener">${t("download")}</a></div>` : ""}
-      <div class="actions">${delBtn("books", b)}</div></div></div></article><section class="card" id="cm"></section>`;
-  bindDel("books", id, "/books");
-  await comments($("#cm"), "books", id);
+      ${u ? `<div class="hero-btns"><a class="btn" href="${safeUrl(readUrl(b))}" target="_blank" rel="noopener">${t("read")}</a>${b.readOnly ? "" : `<a class="btn ghost" href="${safeUrl(dlUrl(u))}" target="_blank" rel="noopener">${t("download")}</a>`}</div>` : ""}
+      ${b.readOnly ? `<p class="ro-note">🔒 ${t("readOnlyBadge")}</p>` : ""}
+      <div class="actions">${delBtn("books", b)}</div></div></div></article>
+    ${b.uid ? `<section class="card pubcard"><h3>${t("aboutPublisher")}</h3><div class="author-row">${avatar(pub?.name || b.name, b.photo, 48)}<div><b>${esc(pub?.name || b.name || "")}</b>
+      ${b.isAuthor === "yes" ? `<span class="badge">${t("isAuthorBadge")}</span>` : ""}<div class="meta">${pub?.country ? ccLabel(pub.country) : ""}</div></div></div>
+      ${pub?.bio ? `<p class="prose">${nl(pub.bio)}</p>` : ""}</section>` : ""}
+    ${pending ? "" : `<section class="card" id="cm"></section>`}`;
+  bindDel("books", id, b.uid === user?.uid && pending ? "/profile" : "/books");
+  const ap = $("#apBtn"); if (ap) ap.onclick = () => approveBook(id).then(() => viewBook(id));
+  if (!pending) await comments($("#cm"), "books", id);
+}
+async function approveBook(id) {
+  try { await updateDoc(doc(db, "books", id), { status: "published", approvedBy: user.uid, approvedAt: serverTimestamp(), createdAt: serverTimestamp() }); bump("content"); toast(t("approved")); }
+  catch (e) { toast(errMsg(e), true); throw e; }
+}
+
+// ---------- publisher info (required before publishing a book) ----------
+const countryList = () => Object.keys(CC_NAME).filter(c => c !== "JRS" && c !== "XX")
+  .sort((a, b) => CC_NAME[a][lang === "ar" ? 0 : 1].localeCompare(CC_NAME[b][lang === "ar" ? 0 : 1], lang)).concat("XX");
+const pubReady = () => !!(profile?.publisher && profile?.phone && profile?.country && profile?.city && profile?.birth);
+async function pagePublisher() {
+  if (!requireLogin()) return;
+  if (isBanned()) return main().innerHTML = `<div class="empty">${t("bannedMsg")}</div>`;
+  let pub = {}; try { const ps = await getDoc(doc(db, "publishers", user.uid)); if (ps.exists()) pub = ps.data(); } catch {}
+  const next = sessionStorage.getItem("pubNext"), P = profile || {};
+  const maxBirth = new Date(Date.now() - 10 * 365.25 * 864e5).toISOString().slice(0, 10);
+  main().innerHTML = `<div class="card narrow"><h1>${t("publisherInfo")}</h1><p class="muted">${t("publisherIntro")}</p>
+    <form class="form" id="pubForm">
+      <label>${t("phone")}<input name="phone" type="tel" dir="ltr" required maxlength="20" placeholder="+970599123456" value="${esc(P.phone || "")}"><small class="lock">${t("phoneNote")}</small></label>
+      <div class="grid2">
+        <label>${t("country")}<select name="country" required><option value="">${t("choose")}</option>${countryList().map(c => `<option value="${c}"${(pub.country || P.country) === c ? " selected" : ""}>${ccLabel(c)}</option>`).join("")}</select></label>
+        <label>${t("city")} <small class="lock">${t("privateNote")}</small><input name="city" required maxlength="80" value="${esc(P.city || "")}"></label>
+      </div>
+      <label>${t("birth")} <small class="lock">${t("privateNote")}</small><input name="birth" type="date" required min="1900-01-01" max="${maxBirth}" value="${esc(P.birth || "")}"></label>
+      <label>${t("bio")} <small>${t("bioNote")}</small><textarea name="bio" rows="4" required minlength="20" maxlength="600">${esc(pub.bio || "")}</textarea></label>
+      <button class="btn wide">${t(next ? "saveContinue" : "save")}</button>
+    </form></div>`;
+  $("#pubForm").onsubmit = async e => {
+    e.preventDefault();
+    const f = Object.fromEntries(new FormData(e.target)); Object.keys(f).forEach(k => f[k] = String(f[k]).trim());
+    const digits = f.phone.replace(/\D/g, "");
+    if (!/^\+?[\d\s-]+$/.test(f.phone) || digits.length < 7 || digits.length > 15) return toast(t("phoneBad"), true);
+    if (!f.birth || f.birth < "1900-01-01" || f.birth > maxBirth) return toast(t("birthBad"), true);
+    if (f.bio.length < 20) return toast(t("bioShort"), true);
+    if (findBad(f.bio + " " + f.city, MOD_WORDS)) return toast(t("badWords"), true);
+    if (!isSheikh() && hasLink(f.bio)) return toast(t("noLinks"), true);
+    const btn = e.target.querySelector("button"); btn.disabled = true;
+    try {
+      await setDoc(doc(db, "publishers", user.uid), { name: myName(), country: f.country, bio: f.bio, updatedAt: serverTimestamp() });
+      const priv = { phone: f.phone, country: f.country, city: f.city, birth: f.birth, publisher: true };
+      await updateDoc(doc(db, "users", user.uid), priv);
+      profile = { ...profile, ...priv }; toast(t("saved"));
+      sessionStorage.removeItem("pubNext"); go(next || "/profile");
+    } catch (err) { toast(errMsg(err), true); btn.disabled = false; }
+  };
+}
+
+// ---------- publish / edit a book ----------
+async function pageBookForm(editId) {
+  if (!requireLogin()) return;
+  if (isBanned()) return main().innerHTML = `<div class="empty">${t("bannedMsg")}</div>`;
+  if (needsVerify()) return main().innerHTML = `<div class="empty">${t("verifyFirst")} <a href="/profile">${t("profile")}</a></div>`;
+  if (!pubReady()) { sessionStorage.setItem("pubNext", location.pathname); return go("/publisher"); }
+  let b = null;
+  if (editId) {
+    b = await getOne("books", editId); if (!b) return main().innerHTML = `<div class="empty">${t("notFound")}</div>`;
+    if (!isSheikh() && !(b.uid === user.uid && b.status === "pending")) return denied();
+  }
+  const v = k => esc(b?.[k] ?? ""), x = b?.extra || {};
+  const opt = (val, label, cur) => `<option value="${val}"${cur === val ? " selected" : ""}>${label}</option>`;
+  const subOpts = c => `<option value="">${t("chooseSub")}</option>` + (SUBCATS[c] || []).map(sc => opt(sc, t("sub_" + sc), b?.subcat)).join("");
+  main().innerHTML = `<div class="card narrow"><div class="page-head"><h1>${b ? t("edit") + ": " + esc(b.title) : t("publishBook")}</h1></div>
+    ${!isSheikh() && !b ? `<p class="muted">${t("bookReviewNote")}</p>` : ""}
+    <form class="form" id="bkForm">
+      <label>${t("bookTitle")}<input name="title" required maxlength="200" value="${v("title")}"></label>
+      <label>${t("bookDesc")} <small class="red">${t("minDesc")}</small><textarea name="desc" rows="7" required minlength="50" maxlength="5000">${v("desc")}</textarea><small class="muted" id="descCount"></small></label>
+      <div class="grid2">
+        <label>${t("isAuthorQ")}<select name="isAuthor" required><option value="">${t("choose")}</option>${opt("yes", t("yesAuthor"), b?.isAuthor)}${opt("no", t("noAuthor"), b?.isAuthor)}</select></label>
+        <label>${t("bookLang")}<select name="lang" required><option value="">${t("chooseLang")}</option>${BOOK_LANGS.map(l => opt(l, t("lang_" + l), b?.lang)).join("")}</select></label>
+      </div>
+      <label>${t("authorFull")} <small class="red">${t("fullName")}</small><input name="author" required maxlength="150" value="${v("author")}"></label>
+      <div class="grid2">
+        <label>${t("mainCat")}<select name="category" required><option value="">${t("chooseMain")}</option>${CATS.books.map(c => opt(c, t("cat_" + c), b?.category)).join("")}</select></label>
+        <label>${t("subCat")}<select name="subcat" required>${subOpts(b?.category)}</select></label>
+      </div>
+      <small class="red">${t("coverNote")}</small>
+      <div class="upbox"><b>⬆ ${t("coverUpload")}</b>${safeUrl(b?.cover) ? `<img class="cvprev" src="${safeUrl(b.cover)}" alt="">` : ""}<input type="file" id="cvFile" accept="image/*"><div class="upbar"><i id="cvBar"></i></div><small id="cvMsg" class="muted"></small></div>
+      <label class="check"><input type="checkbox" name="readOnly"${b?.readOnly ? " checked" : ""}> <span>${t("readOnlyQ")} <small class="red">${t("readOnlyNote")}</small></span></label>
+      <div class="upbox"><b>⬆ ${t("bookFile")}</b>${b?.url ? `<small class="muted">${t("currentFile")}</small>` : ""}<input type="file" id="bkFile" accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"><div class="upbar"><i id="bkBar"></i></div><small id="bkMsg" class="muted">${t("bookFileHint")}</small></div>
+      <label class="check"><input type="checkbox" id="exTog"${Object.values(x).some(Boolean) ? " checked" : ""}> <span>${t("extraQ")} <small class="green">${t("optional")}</small></span></label>
+      <div class="grid2 extra"${Object.values(x).some(Boolean) ? "" : " hidden"}>
+        <label>${t("pages")}<input name="pages" type="number" min="1" max="100000" value="${esc(x.pages || "")}"></label>
+        <label>${t("house")}<input name="house" maxlength="120" value="${esc(x.house || "")}"></label>
+        <label>${t("year")}<input name="year" maxlength="20" placeholder="1445 هـ / 2024 م" value="${esc(x.year || "")}"></label>
+        <label>${t("edition")}<input name="edition" maxlength="40" value="${esc(x.edition || "")}"></label>
+      </div>
+      <label class="check"><input type="checkbox" name="agree" required${b ? " checked" : ""}> <span>${t("agreeTerms")} <a href="/terms" target="_blank">${t("terms")}</a> · <a href="/privacy" target="_blank">${t("privacy")}</a></span></label>
+      <button class="btn wide">⬆ ${b ? t("save") : t("publishBook")}</button>
+    </form></div>`;
+  const F = $("#bkForm"), save = $("#bkForm > button");
+  let fileUrl = b?.url || "", fileType = b?.fileType || "", coverUrl = b?.cover || "", busy = 0;
+  const lock = d => { busy += d; save.disabled = busy > 0; };
+  const dc = () => { $("#descCount").textContent = `${F.desc.value.trim().length} / 50+`; }; F.desc.oninput = dc; dc();
+  F.category.onchange = () => { F.subcat.innerHTML = subOpts(F.category.value); };
+  $("#exTog").onchange = e => { $(".extra", F).hidden = !e.target.checked; };
+  const tooBig = r => /too large|file size|Maximum/i.test(r || "");
+  $("#cvFile").onchange = async e => {
+    const f = e.target.files[0]; if (!f) return; const m = $("#cvMsg"), bar = $("#cvBar");
+    if (!/^image\//.test(f.type)) { e.target.value = ""; return toast(t("fileType"), true); }
+    lock(1); e.target.disabled = true;
+    try { const u = await cloudUpload(f, "image", p => { bar.style.width = p + "%"; m.textContent = `${t("uploading")} ${p}%`; });
+      coverUrl = u.replace("/image/upload/", "/image/upload/c_limit,w_600,q_auto,f_auto/"); m.textContent = t("coverDone"); }
+    catch (err) { bar.style.width = "0"; m.textContent = tooBig(err.message) ? t("fileTooBigHost") : t("uploadFail"); }
+    e.target.disabled = false; lock(-1);
+  };
+  $("#bkFile").onchange = async e => {
+    const f = e.target.files[0]; if (!f) return; const m = $("#bkMsg"), bar = $("#bkBar");
+    const isPdf = /\.pdf$/i.test(f.name) || f.type === "application/pdf", isDoc = /\.docx?$/i.test(f.name);
+    if (!isPdf && !isDoc) { e.target.value = ""; return toast(t("fileType"), true); }
+    lock(1); e.target.disabled = true;
+    try { fileUrl = await cloudUpload(f, isPdf ? "image" : "raw", p => { bar.style.width = p + "%"; m.textContent = `${t("uploading")} ${p}%`; });
+      fileType = isPdf ? "pdf" : "doc"; m.textContent = t("bookFileDone"); }
+    catch (err) { bar.style.width = "0"; m.textContent = tooBig(err.message) ? t("fileTooBigHost") : t("uploadFail"); }
+    e.target.disabled = false; lock(-1);
+  };
+  F.onsubmit = async e => {
+    e.preventDefault(); if (busy) return;
+    const g = k => String(F[k]?.value || "").trim();
+    const data = { title: g("title"), desc: g("desc"), isAuthor: g("isAuthor"), lang: g("lang"), author: g("author"), category: g("category"), subcat: g("subcat"), readOnly: F.readOnly.checked };
+    if (data.desc.length < 50) return toast(t("descShort"), true);
+    if (!fileUrl) return toast(t("fileRequired"), true);
+    if (!F.agree.checked) return toast(t("mustAgree"), true);
+    const bad = isSheikh() ? null : (findBad([data.title, data.desc, data.author].join(" "), MOD_WORDS) ? t("badWords") : hasLink(data.title + " " + data.desc) ? t("noLinks") : null);
+    if (bad) return toast(bad, true);
+    data.extra = $("#exTog").checked ? { pages: g("pages"), house: g("house"), year: g("year"), edition: g("edition") } : {};
+    data.url = fileUrl; data.fileType = fileType;
+    data.cover = coverUrl || (isCloudPdf(fileUrl) ? fileUrl.replace("/image/upload/", "/image/upload/pg_1,c_limit,w_600,q_auto/").replace(/\.pdf(\?.*)?$/i, ".jpg") : "");
+    save.disabled = true;
+    try {
+      if (b) { await updateDoc(doc(db, "books", editId), { ...data, updatedAt: serverTimestamp() }); toast(t("saved")); go(`/books/${editId}`); }
+      else {
+        const st = isSheikh() ? "published" : "pending";
+        const r = await addDoc(collection(db, "books"), { ...data, status: st, uid: user.uid, name: myName(), photo: myPhoto(), createdAt: serverTimestamp() });
+        if (st === "published") bump("content"); toast(t(st === "published" ? "saved" : "bookSent")); go(`/books/${r.id}`);
+      }
+    } catch (err) { toast(errMsg(err), true); save.disabled = false; }
+  };
 }
 
 // ---------- forum ----------
@@ -651,7 +817,7 @@ function cloudUpload(file, res, onProgress) {
     const xhr = new XMLHttpRequest();
     xhr.open("POST", `https://api.cloudinary.com/v1_1/${UPLOAD.cloudName}/${res}/upload`);
     xhr.upload.onprogress = ev => { if (ev.lengthComputable && onProgress) onProgress(Math.round(ev.loaded / ev.total * 100)); };
-    xhr.onload = () => { try { const r = JSON.parse(xhr.responseText); if (r.secure_url) return ok(r.secure_url); } catch {} fail(new Error("upload")); };
+    xhr.onload = () => { let r = {}; try { r = JSON.parse(xhr.responseText); } catch {} if (r.secure_url) return ok(r.secure_url); fail(new Error(r.error?.message || "upload")); };
     xhr.onerror = () => fail(new Error("upload"));
     xhr.send(fd);
   });
@@ -665,6 +831,7 @@ const FORMS = {
   thread: { coll: "threads", staff: false, title: "newThread", fields: [{ k: "title" }, { k: "category", type: "select", opts: CATS.threads }, { k: "body", type: "textarea", rows: 10 }] }
 };
 async function pageNew(type, editId) {
+  if (type === "book") return pageBookForm(editId);
   const F = FORMS[type]; if (!F) return main().innerHTML = `<div class="empty">${t("notFound")}</div>`;
   if (!requireLogin()) return;
   if (isBanned()) return main().innerHTML = `<div class="empty">${t("bannedMsg")}</div>`;
@@ -828,6 +995,7 @@ async function pageProfile() {
   if (!requireLogin()) return;
   const s = await getDocs(query(collection(db, "questions"), where("uid", "==", user.uid), limit(200)));
   const qs = s.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => ms(b.createdAt) - ms(a.createdAt));
+  let mb = []; try { mb = (await getDocs(query(collection(db, "books"), where("uid", "==", user.uid), limit(200)))).docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => ms(b.createdAt) - ms(a.createdAt)); } catch (e) { console.warn(e); }
   const r = isAdmin() ? "admin" : role();
   main().innerHTML = `<div class="card narrow profile">
       <div class="author-row">${avatar(myName(), myPhoto(), 88)}<div><h1>${esc(myName())}</h1><div class="meta" dir="ltr">${esc(user.email || "")}</div>
@@ -837,6 +1005,8 @@ async function pageProfile() {
       <form class="form inline" id="nameForm"><label>${t("name")}<input name="name" value="${esc(myName())}" required maxlength="60"></label><button class="btn sm">${t("save")}</button></form>
       <button class="btn ghost sm danger" id="outBtn">${t("logout")}</button>
     </div>
+    <div class="card narrow"><div class="page-head"><h2>${t("myBooks")}</h2><div class="row-btns"><a class="btn ghost sm" href="/publisher">${t("publisherInfo")}</a> <a class="btn sm" href="/new/book">+ ${t("publishBook")}</a></div></div>
+      ${mb.length ? `<div class="list">${mb.map(b => `<a class="item row" href="/books/${b.id}"><h3>${esc(b.title)}</h3><span class="status ${b.status === "published" ? "answered" : "pending"}">${t("st_" + (b.status || "published"))}</span></a>`).join("")}</div>` : `<div class="empty sm">${t("empty")}</div>`}</div>
     <div class="card narrow"><div class="page-head"><h2>${t("myQuestions")}</h2><a class="btn sm" href="/ask">${t("ask")}</a></div>
       ${qs.length ? `<div class="list">${qs.map(q => `<a class="item row" href="/fatwa/${q.id}"><h3>${esc(q.title || excerpt(q.body, 80))}</h3>
         <span class="status ${q.status}">${t(q.status)}</span></a>`).join("")}</div>` : `<div class="empty sm">${t("empty")}</div>`}</div>`;
@@ -868,6 +1038,7 @@ async function pageProfile() {
     try {
       if (nameKey(name) !== profile?.nameKey) { const o = await nameOwner(name); if (o && o !== user.uid) return toast(t("nameTaken"), true); }
       await changeName(name); await updateProfile(user, { displayName: name });
+      if (profile?.publisher) updateDoc(doc(db, "publishers", user.uid), { name }).catch(() => {});
       profile = { ...profile, name, nameKey: nameKey(name) }; renderShell(); toast(t("saved")); pageProfile();
     } catch (err) { toast(errMsg(err), true); }
   };
@@ -878,8 +1049,12 @@ async function pagePanel() {
   if (!requireLogin()) return; if (!isSheikh()) return denied();
   const s = await getDocs(query(collection(db, "questions"), where("status", "==", "pending"), limit(300)));
   const qs = s.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => ms(a.createdAt) - ms(b.createdAt));
+  let pb = []; try { pb = (await getDocs(query(collection(db, "books"), where("status", "==", "pending"), limit(200)))).docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => ms(a.createdAt) - ms(b.createdAt)); } catch (e) { console.warn(e); }
   main().innerHTML = `
     <div class="page-head"><h1>${t("panel")}</h1></div>
+    <h2 class="sub">${t("pendingBooks")} (${pb.length})</h2>
+    ${pb.length ? `<div class="list">${pb.map(b => `<div class="item row pbk" data-id="${b.id}"><a href="/books/${b.id}"><h3>${esc(b.title)}</h3><div class="meta">${esc(b.author)} · ${t("publisher")}: ${esc(b.name)} · ${fmtDate(b.createdAt)} ${catTag(b.category)}</div></a>
+      <div class="row-btns"><button class="btn sm" data-ap>${t("approve")}</button><button class="btn ghost sm danger" data-bdel>${t("delete")}</button></div></div>`).join("")}</div>` : `<div class="empty sm">${t("empty")}</div>`}
     <div class="card"><h2>${t("addContent")}</h2><div class="hero-btns">
       <a class="btn ghost" href="/new/post">+ ${t("newPost")}</a><a class="btn ghost" href="/new/audio">+ ${t("newAudio")}</a><a class="btn ghost" href="/new/video">+ ${t("newVideo")}</a><a class="btn ghost" href="/new/book">+ ${t("newBook")}</a></div></div>
     <h2 class="sub">${t("pendingQuestions")} (${qs.length})</h2>
@@ -891,6 +1066,7 @@ async function pagePanel() {
       <div class="row-btns"><button class="btn">${t("publishAnswer")}</button>
       ${isAdmin() ? `<button type="button" class="btn ghost sm danger" data-del>${t("delete")}</button>` : ""}</div></form></div>`).join("")
       : `<div class="empty">${t("noPending")}</div>`}`;
+  bindPendingBooks();
   $$(".pq").forEach(card => {
     const q = qs.find(x => x.id === card.dataset.id), f = $("form", card);
     f.onsubmit = async e => { e.preventDefault(); $("button", f).disabled = true;
@@ -898,6 +1074,14 @@ async function pagePanel() {
     const d = $("[data-del]", card);
     if (d) d.onclick = async () => { if (!confirm(t("confirmDelete"))) return;
       try { await deleteDoc(doc(db, "questions", q.id)); card.remove(); } catch (e) { toast(errMsg(e), true); } };
+  });
+}
+
+function bindPendingBooks() {
+  $$(".pbk").forEach(row => {
+    const id = row.dataset.id;
+    $("[data-ap]", row).onclick = async () => { try { await approveBook(id); row.remove(); } catch {} };
+    $("[data-bdel]", row).onclick = async () => { if (!confirm(t("confirmDelete"))) return; try { await deleteDoc(doc(db, "books", id)); row.remove(); } catch (e) { toast(errMsg(e), true); } };
   });
 }
 
