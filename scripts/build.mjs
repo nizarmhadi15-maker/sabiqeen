@@ -121,7 +121,7 @@ for (const q of fatwas) {
   add(url, q.answeredAt);
 }
 page({ url: "/fatwa/", title: T.fatwa, desc: T.secFatwa, type: "website",
-  body: `<div class="page-head"><h1>${esc(T.fatwa)}</h1></div><p class="muted">${esc(T.secFatwa)}</p><div class="list">${fatwas.map(q => `<a class="item fatwa-item" href="/fatwa/${q.id}"><h3>${esc(q.title || plain(q.body, 80))}</h3><p>${esc(plain(q.answer, 140))}</p></a>`).join("")}</div>` });
+  body: `<div class="page-head"><h1>${esc(T.fatwa)}</h1></div><p class="muted">${esc(T.secFatwa)} (${fatwas.length})</p><div class="list">${fatwas.map((q, i) => `<a class="item fatwa-item" href="/fatwa/${q.id}"><h3>${fatwas.length - i}. ${esc(q.title || plain(q.body, 80))}</h3><p>${esc(plain(q.answer, 140))}</p></a>`).join("")}</div>` });
 add("/fatwa/", fatwas[0]?.answeredAt, "0.8", "daily");
 
 // الصفحات الثابتة
