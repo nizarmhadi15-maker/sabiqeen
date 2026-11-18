@@ -23,3 +23,10 @@ export const SITE = {
   contactEmail: "nizarhron1@gmail.com",
   defaultLang: "ar"
 };
+
+// 4) رفع الفيديوهات (Cloudinary — مجاني 25GB). اتركها فارغة لإخفاء زر الرفع.
+export const UPLOAD = {
+  cloudName: "",      // اسم الحساب في Cloudinary
+  videoPreset: "",    // اسم Upload preset (Unsigned)
+  maxMB: 100          // أقصى حجم للفيديو في الخطة المجانية
+};

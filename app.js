@@ -1,4 +1,4 @@
-import { firebaseConfig, SITE, ADMIN_EMAILS } from "./config.js";
+import { firebaseConfig, SITE, ADMIN_EMAILS, UPLOAD } from "./config.js";
 import { I18N } from "./i18n.js";
 import { PAGES } from "./pages.js";
 import { DEFAULT_WORDS, findBad, hasLink, buildPattern, HIDE_AFTER_REPORTS, COOLDOWN_SEC, isDisposable, nameKey } from "./moderation.js";
@@ -488,9 +488,11 @@ function ytId(u) {
   const m = String(u || "").match(/(?:youtube\.com\/(?:watch\?(?:.*&)?v=|shorts\/|embed\/|live\/)|youtu\.be\/)([\w-]{11})/);
   return m ? m[1] : "";
 }
+const isDirectVideo = u => /res\.cloudinary\.com\/.+\/video\/upload\//.test(u || "") || /\.(mp4|webm|m4v|mov|ogv)(\?.*)?$/i.test(u || "");
+const cloudThumb = u => /res\.cloudinary\.com\/.+\/video\/upload\//.test(u || "") ? u.replace("/video/upload/", "/video/upload/so_2,w_480,c_fill,h_270/").replace(/\.[a-z0-9]+(\?.*)?$/i, ".jpg") : "";
 const videoItem = v => {
-  const y = ytId(v.url);
-  return `<a class="vcard" href="#/videos/${v.id}"><div class="vthumb">${y ? `<img src="https://i.ytimg.com/vi/${y}/hqdefault.jpg" alt="" loading="lazy">` : icon("videos")}<span class="play">▶</span></div>
+  const y = ytId(v.url), ct = cloudThumb(v.url);
+  return `<a class="vcard" href="#/videos/${v.id}"><div class="vthumb">${y ? `<img src="https://i.ytimg.com/vi/${y}/hqdefault.jpg" alt="" loading="lazy">` : ct ? `<img src="${esc(ct)}" alt="" loading="lazy">` : icon("videos")}<span class="play">▶</span></div>
     <h3>${esc(v.title)}</h3><small>${esc(v.speaker || "")} ${catTag(v.category)}</small></a>`;
 };
 async function listVideos() {
@@ -503,6 +505,7 @@ async function viewVideo(id) {
   main().innerHTML = `<article class="card article"><div class="crumb"><a href="#/videos">${t("videos")}</a></div>
     <h1>${esc(v.title)}</h1><div class="meta">${esc(v.speaker || "")} · ${fmtDate(v.createdAt)} ${catTag(v.category)}</div>
     ${y ? `<div class="vframe"><iframe src="https://www.youtube-nocookie.com/embed/${y}" title="${esc(v.title)}" allow="accelerometer; encrypted-media; gyroscope; picture-in-picture; fullscreen" allowfullscreen loading="lazy"></iframe></div>`
+      : u && isDirectVideo(v.url) ? `<div class="vframe"><video controls preload="metadata" playsinline src="${u}"${cloudThumb(v.url) ? ` poster="${esc(cloudThumb(v.url))}"` : ""}></video></div>`
       : u ? `<a class="btn" href="${u}" target="_blank" rel="noopener">${t("watch")}</a>` : ""}
     ${v.desc ? `<div class="prose">${nl(v.desc)}</div>` : ""}<div class="actions">${delBtn("videos", v)}</div></article><section class="card" id="cm"></section>`;
   bindDel("videos", id, "#/videos");
@@ -609,7 +612,7 @@ function pageAsk() {
 // ---------- add content ----------
 const FORMS = {
   post: { coll: "posts", staff: true, title: "newPost", fields: [{ k: "title" }, { k: "body", type: "textarea", rows: 14 }] },
-  video: { coll: "videos", staff: true, title: "newVideo", fields: [{ k: "title" }, { k: "speaker" }, { k: "url", type: "url", label: "videoUrl" }, { k: "category", type: "select", opts: CATS.videos }, { k: "desc", type: "textarea", opt: true }] },
+  video: { coll: "videos", staff: true, title: "newVideo", fields: [{ k: "title" }, { k: "speaker" }, { k: "url", type: "url", label: "videoUrl", opt: true, upload: "video" }, { k: "category", type: "select", opts: CATS.videos }, { k: "desc", type: "textarea", opt: true }] },
   audio: { coll: "audios", staff: true, title: "newAudio", fields: [{ k: "title" }, { k: "speaker" }, { k: "url", type: "url", label: "audioUrl" }, { k: "category", type: "select", opts: CATS.audios }, { k: "desc", type: "textarea", opt: true }] },
   book: { coll: "books", staff: true, title: "newBook", fields: [{ k: "title" }, { k: "author" }, { k: "url", type: "url", label: "pdfUrl" }, { k: "cover", type: "url", opt: true }, { k: "category", type: "select", opts: CATS.books }, { k: "desc", type: "textarea", opt: true }] },
   thread: { coll: "threads", staff: false, title: "newThread", fields: [{ k: "title" }, { k: "category", type: "select", opts: CATS.threads }, { k: "body", type: "textarea", rows: 10 }] }
@@ -630,13 +633,35 @@ async function pageNew(type, editId) {
     const lbl = `${t(f.label || f.k)}${f.opt ? ` <small>(${t("optional")})</small>` : ""}`, req = f.opt ? "" : "required";
     if (f.type === "textarea") return `<label>${lbl}<textarea name="${f.k}" rows="${f.rows || 5}" ${req}>${v(f.k)}</textarea></label>`;
     if (f.type === "select") return `<label>${lbl}<select name="${f.k}">${f.opts.map(o => `<option value="${o}"${item?.[f.k] === o ? " selected" : ""}>${t("cat_" + o)}</option>`).join("")}</select></label>`;
-    return `<label>${lbl}<input name="${f.k}" value="${v(f.k)}" type="${f.type || "text"}" ${req} ${f.type === "url" ? 'dir="ltr" placeholder="https://"' : 'maxlength="200"'}></label>`;
+    const inp = `<label>${lbl}<input name="${f.k}" value="${v(f.k)}" type="${f.type || "text"}" ${req} ${f.type === "url" ? 'dir="ltr" placeholder="https://"' : 'maxlength="200"'}></label>`;
+    if (f.upload !== "video") return inp;
+    return inp + (UPLOAD?.cloudName && UPLOAD?.videoPreset
+      ? `<div class="upbox"><b>${t("uploadVideo")}</b><input type="file" id="upFile" accept="video/*"><div class="upbar"><i id="upBar"></i></div><small id="upMsg" class="muted">${t("uploadHint").replace("{mb}", UPLOAD.maxMB || 100)}</small></div>`
+      : `<small class="muted">${t("uploadSoon")}</small>`);
   };
   main().innerHTML = `<div class="card narrow"><h1>${item ? t("edit") + ": " + esc(item.title) : t(F.title)}</h1><form class="form" id="newForm">${F.fields.map(field).join("")}<button class="btn wide">${t("save")}</button></form></div>`;
+  const up = $("#upFile");
+  if (up) up.onchange = () => {
+    const file = up.files[0]; if (!file) return;
+    const msg = $("#upMsg"), bar = $("#upBar"), save = $("#newForm > button");
+    if (file.size > (UPLOAD.maxMB || 100) * 1048576) { msg.textContent = t("uploadTooBig").replace("{mb}", UPLOAD.maxMB || 100); up.value = ""; return; }
+    const fd = new FormData(); fd.append("file", file); fd.append("upload_preset", UPLOAD.videoPreset);
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", `https://api.cloudinary.com/v1_1/${UPLOAD.cloudName}/video/upload`);
+    xhr.upload.onprogress = ev => { if (ev.lengthComputable) { const p = Math.round(ev.loaded / ev.total * 100); bar.style.width = p + "%"; msg.textContent = `${t("uploading")} ${p}%`; } };
+    xhr.onload = () => {
+      save.disabled = false; up.disabled = false;
+      try { const r = JSON.parse(xhr.responseText); if (r.secure_url) { $("#newForm [name=url]").value = r.secure_url; msg.textContent = t("uploadDone"); bar.style.width = "100%"; return; } } catch {}
+      msg.textContent = t("uploadFail"); bar.style.width = "0";
+    };
+    xhr.onerror = () => { save.disabled = false; up.disabled = false; msg.textContent = t("uploadFail"); };
+    save.disabled = true; up.disabled = true; xhr.send(fd);
+  };
   $("#newForm").onsubmit = async e => {
     e.preventDefault();
     const data = {};
     F.fields.forEach(f => data[f.k] = String(new FormData(e.target).get(f.k) || "").trim());
+    if (F.fields.some(f => f.upload) && !data.url) return toast(t("urlOrUpload"), true);
     const bad = checkContent(...F.fields.filter(f => f.type !== "url" && f.type !== "select").map(f => data[f.k])); if (bad) return toast(bad, true);
     e.target.querySelector("button").disabled = true;
     try {
