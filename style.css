@@ -293,3 +293,5 @@ small.green{color:var(--teal);font-weight:500}
 .pdftools select{width:auto;padding:6px 10px;font-size:14px}
 .cf-box{min-height:65px;display:flex;justify-content:center}
 .cf-box:empty{min-height:0}
+.qa-new summary{cursor:pointer;padding:4px 0}
+.qa-new[open] summary{margin-bottom:12px}

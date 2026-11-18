@@ -799,6 +799,7 @@ async function viewThread(id) {
 }
 
 // ---------- fatwa ----------
+const linkify = x => nl(x).replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener nofollow" dir="ltr">$1</a>');
 const qName = q => q.showName === false ? t("anonymous") : q.name;
 const fatwaItem = q => `<a class="item fatwa-item" href="/fatwa/${q.id}"><span class="qmark">؟</span><div><h3>${esc(q.title || excerpt(q.body, 80))}</h3>
   <p>${excerpt(q.answer, 140)}</p>${meta(q.sheikhName ? t("answeredBy") + " " + q.sheikhName : "", q.answeredAt, " " + catTag(q.category))}</div></a>`;
@@ -812,7 +813,7 @@ async function viewFatwa(id) {
   main().innerHTML = `<article class="card article"><div class="crumb"><a href="/fatwa">${t("fatwa")}</a> ${catTag(q.category)}</div>
     <h1>${esc(q.title || t("question"))}</h1>
     <div class="qa q"><div class="qa-label">${t("question")}</div><div class="prose">${nl(q.body)}</div>${meta(qName(q), q.createdAt)}</div>
-    ${done ? `<div class="qa a"><div class="qa-label">${t("answer")}</div><div class="prose">${nl(q.answer)}</div>
+    ${done ? `<div class="qa a"><div class="qa-label">${t("answer")}</div><div class="prose">${linkify(q.answer)}</div>
       <div class="meta">${t("answeredBy")} <b>${esc(q.sheikhName)}</b> · ${fmtDate(q.answeredAt)}</div></div>`
       : `<div class="status pending">${t("pending")}</div>`}
     ${isSheikh() ? `<details class="edit-ans"${done ? "" : " open"}><summary>${done ? t("editAnswer") : t("publishAnswer")}</summary>
@@ -1187,6 +1188,15 @@ async function pagePanel() {
   let pb = []; try { pb = (await getDocs(query(collection(db, "books"), where("status", "==", "pending"), limit(200)))).docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => ms(a.createdAt) - ms(b.createdAt)); } catch (e) { console.warn(e); }
   main().innerHTML = `
     <div class="page-head"><h1>${t("panel")}</h1></div>
+    <details class="card qa-new"><summary><b>+ ${t("readyFatwa")}</b> <small class="muted">${t("readyFatwaNote")}</small></summary>
+      <form class="form" id="qaForm">
+        <label>${t("category")}<select name="category">${CATS.questions.map(c => `<option value="${c}">${t("cat_" + c)}</option>`).join("")}</select></label>
+        <label>${t("qTitle")}<input name="title" required maxlength="200"></label>
+        <label>${t("question")}<textarea name="body" rows="4" required maxlength="5000"></textarea></label>
+        <label>${t("answer")}<textarea name="answer" rows="9" required></textarea></label>
+        <label>${t("answeredByLbl")} <small class="muted">${t("answeredByHint")}</small><input name="by" maxlength="120" placeholder="${esc(myName())}"></label>
+        <button class="btn">${t("publishAnswer")}</button>
+      </form></details>
     <h2 class="sub">${t("pendingBooks")} (${pb.length})</h2>
     ${pb.length ? `<div class="list">${pb.map(b => `<div class="item row pbk" data-id="${b.id}"><a href="/books/${b.id}"><h3>${esc(b.title)}</h3><div class="meta">${esc(b.author)} · ${t("publisher")}: ${esc(b.name)} · ${fmtDate(b.createdAt)} ${catTag(b.category)}</div></a>
       <div class="row-btns"><button class="btn sm" data-ap>${t("approve")}</button><button class="btn ghost sm danger" data-bdel>${t("delete")}</button></div></div>`).join("")}</div>` : `<div class="empty sm">${t("empty")}</div>`}
@@ -1202,6 +1212,16 @@ async function pagePanel() {
       ${isAdmin() ? `<button type="button" class="btn ghost sm danger" data-del>${t("delete")}</button>` : ""}</div></form></div>`).join("")
       : `<div class="empty">${t("noPending")}</div>`}`;
   bindPendingBooks();
+  $("#qaForm").onsubmit = async e => {
+    e.preventDefault(); const f = e.target, btn = $("button", f); btn.disabled = true;
+    const g = k => String(f[k].value || "").trim();
+    try {
+      const r = await addDoc(collection(db, "questions"), { title: g("title"), body: g("body"), category: f.category.value, uid: user.uid, name: myName(), showName: false, status: "pending", createdAt: serverTimestamp() });
+      await updateDoc(doc(db, "questions", r.id), { answer: g("answer"), status: "answered", sheikhUid: user.uid, sheikhName: g("by") || myName(), answeredAt: serverTimestamp() });
+      bump("questions"); toast(t("saved")); f.reset();
+    } catch (err) { toast(errMsg(err), true); }
+    btn.disabled = false;
+  };
   $$(".pq").forEach(card => {
     const q = qs.find(x => x.id === card.dataset.id), f = $("form", card);
     f.onsubmit = async e => { e.preventDefault(); $("button", f).disabled = true;
