@@ -1,4 +1,4 @@
-import { firebaseConfig, SITE, ADMIN_EMAILS, UPLOAD } from "./config.js";
+import { firebaseConfig, SITE, ADMIN_EMAILS, UPLOAD, CAPTCHA } from "./config.js";
 import { I18N } from "./i18n.js";
 import { PAGES } from "./pages.js";
 import { DEFAULT_WORDS, findBad, hasLink, buildPattern, HIDE_AFTER_REPORTS, COOLDOWN_SEC, isDisposable, nameKey } from "./moderation.js";
@@ -333,6 +333,7 @@ function pageLogin() {
         <label>${t("email")}<input name="email" type="email" required autocomplete="email"></label>
         ${mode !== "reset" ? pwField("pw", t("password"), mode === "register" ? "new-password" : "current-password") : ""}
         ${mode === "register" ? pwField("pw2", t("pwConfirm"), "new-password") : ""}
+        ${mode !== "login" ? capBox() : ""}
         <button class="btn wide">${mode === "reset" ? t("sendReset") : mode === "register" ? t("createAccount") : t("login")}</button>
       </form>
       <div class="auth-links">
@@ -351,8 +352,10 @@ function pageLogin() {
         if (!/popup-closed|cancelled-popup/.test(e.code)) toast(errMsg(e), true);
       }
     };
+    const cap = captcha($(".cf-box", $("#aForm")));
     $("#aForm").onsubmit = async e => {
       e.preventDefault();
+      if (!cap.ok()) return toast(t("captchaNeed"), true);
       const f = Object.fromEntries(new FormData(e.target));
       const btn = e.target.querySelector("button"); btn.disabled = true;
       try {
@@ -615,13 +618,19 @@ async function pagePublisher() {
         <label>${t("country")}<select name="country" required><option value="">${t("choose")}</option>${countryList().map(c => `<option value="${c}"${(pub.country || P.country) === c ? " selected" : ""}>${ccLabel(c)}</option>`).join("")}</select></label>
         <label>${t("city")} <small class="lock">${t("privateNote")}</small><input name="city" required maxlength="80" value="${esc(P.city || "")}"></label>
       </div>
-      <label>${t("birth")} <small class="lock">${t("privateNote")}</small><input name="birth" type="date" required min="1900-01-01" max="${maxBirth}" value="${esc(P.birth || "")}"></label>
+      <label>${t("birth")} <small class="lock">${t("privateNote")}</small></label>
+      <div class="bdate">${(() => { const [yy, mm, dd] = (P.birth || "").split("-").map(Number), maxY = +maxBirth.slice(0, 4);
+        const sel = (n, ph, arr, cur) => `<select name="${n}" required aria-label="${ph}"><option value="">${ph}</option>${arr.map(x => `<option value="${x}"${x === cur ? " selected" : ""}>${x}</option>`).join("")}</select>`;
+        const rng = (a, b) => Array.from({ length: Math.abs(b - a) + 1 }, (_, i) => a < b ? a + i : a - i);
+        return sel("bd", t("day"), rng(1, 31), dd) + sel("bm", t("month"), rng(1, 12), mm) + sel("by", t("yearLbl"), rng(maxY, 1920), yy); })()}</div>
       <label>${t("bio")} <small>${t("bioNote")}</small><textarea name="bio" rows="4" required minlength="20" maxlength="600">${esc(pub.bio || "")}</textarea></label>
       <button class="btn wide">${t(next ? "saveContinue" : "save")}</button>
     </form></div>`;
   $("#pubForm").onsubmit = async e => {
     e.preventDefault();
     const f = Object.fromEntries(new FormData(e.target)); Object.keys(f).forEach(k => f[k] = String(f[k]).trim());
+    const bd = +f.bd, bm = +f.bm, by = +f.by, dt = new Date(Date.UTC(by, bm - 1, bd));
+    f.birth = bd && bm && by && dt.getUTCDate() === bd ? `${by}-${String(bm).padStart(2, "0")}-${String(bd).padStart(2, "0")}` : "";
     const digits = f.phone.replace(/\D/g, "");
     if (!/^\+?[\d\s-]+$/.test(f.phone) || digits.length < 7 || digits.length > 15) return toast(t("phoneBad"), true);
     if (!f.birth || f.birth < "1900-01-01" || f.birth > maxBirth) return toast(t("birthBad"), true);
@@ -670,7 +679,11 @@ async function pageBookForm(editId) {
       <small class="red">${t("coverNote")}</small>
       <div class="upbox"><b>⬆ ${t("coverUpload")}</b>${safeUrl(b?.cover) ? `<img class="cvprev" src="${safeUrl(b.cover)}" alt="">` : ""}<input type="file" id="cvFile" accept="image/*"><div class="upbar"><i id="cvBar"></i></div><small id="cvMsg" class="muted"></small></div>
       <label class="check"><input type="checkbox" name="readOnly"${b?.readOnly ? " checked" : ""}> <span>${t("readOnlyQ")} <small class="red">${t("readOnlyNote")}</small></span></label>
-      <div class="upbox"><b>⬆ ${t("bookFile")}</b>${b?.url ? `<small class="muted">${t("currentFile")}</small>` : ""}<input type="file" id="bkFile" accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"><div class="upbar"><i id="bkBar"></i></div><small id="bkMsg" class="muted">${t("bookFileHint")}</small></div>
+      <div class="upbox"><b>⬆ ${t("bookFile")}</b>${b?.url ? `<small class="muted">${t("currentFile")}</small>` : ""}<input type="file" id="bkFile" accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document">
+        <div class="pdftools" id="pdfTools" hidden><b id="pdfSize"></b>
+          <select id="cmpLevel" aria-label="${t("compressBtn")}"><option value="ebook">${t("cmpMid")}</option><option value="screen">${t("cmpStrong")}</option></select>
+          <button type="button" class="btn ghost sm" id="cmpBtn">🗜 ${t("compressBtn")}</button><button type="button" class="btn sm" id="upNow">⬆ ${t("uploadBtn")}</button></div>
+        <div class="upbar"><i id="bkBar"></i></div><small id="bkMsg" class="muted">${t("bookFileHint")}</small></div>
       <label class="check"><input type="checkbox" id="exTog"${Object.values(x).some(Boolean) ? " checked" : ""}> <span>${t("extraQ")} <small class="green">${t("optional")}</small></span></label>
       <div class="grid2 extra"${Object.values(x).some(Boolean) ? "" : " hidden"}>
         <label>${t("pages")}<input name="pages" type="number" min="1" max="100000" value="${esc(x.pages || "")}"></label>
@@ -679,9 +692,9 @@ async function pageBookForm(editId) {
         <label>${t("edition")}<input name="edition" maxlength="40" value="${esc(x.edition || "")}"></label>
       </div>
       <label class="check"><input type="checkbox" name="agree" required${b ? " checked" : ""}> <span>${t("agreeTerms")} <a href="/terms" target="_blank">${t("terms")}</a> · <a href="/privacy" target="_blank">${t("privacy")}</a></span></label>
-      <button class="btn wide">⬆ ${b ? t("save") : t("publishBook")}</button>
+      ${b ? "" : capBox()}<button class="btn wide">⬆ ${b ? t("save") : t("publishBook")}</button>
     </form></div>`;
-  const F = $("#bkForm"), save = $("#bkForm > button");
+  const F = $("#bkForm"), save = $("#bkForm > button"), cap = captcha($("#bkForm .cf-box"));
   let fileUrl = b?.url || "", fileType = b?.fileType || "", coverUrl = b?.cover || "", busy = 0;
   const lock = d => { busy += d; save.disabled = busy > 0; };
   const dc = () => { $("#descCount").textContent = `${F.desc.value.trim().length} / 50+`; }; F.desc.oninput = dc; dc();
@@ -697,18 +710,51 @@ async function pageBookForm(editId) {
     catch (err) { bar.style.width = "0"; m.textContent = tooBig(err.message) ? t("fileTooBigHost") : t("uploadFail"); }
     e.target.disabled = false; lock(-1);
   };
-  $("#bkFile").onchange = async e => {
-    const f = e.target.files[0]; if (!f) return; const m = $("#bkMsg"), bar = $("#bkBar");
-    const isPdf = /\.pdf$/i.test(f.name) || f.type === "application/pdf", isDoc = /\.docx?$/i.test(f.name);
-    if (!isPdf && !isDoc) { e.target.value = ""; return toast(t("fileType"), true); }
-    lock(1); e.target.disabled = true;
+  const MB = 1048576, LIMIT = 10 * MB, mbs = n => (n / MB).toFixed(1);
+  let pick = null;
+  const upBook = async (f, isPdf) => {
+    const m = $("#bkMsg"), bar = $("#bkBar"), inp = $("#bkFile");
+    lock(1); inp.disabled = true; $("#pdfTools").hidden = true;
     try { fileUrl = await cloudUpload(f, isPdf ? "image" : "raw", p => { bar.style.width = p + "%"; m.textContent = `${t("uploading")} ${p}%`; });
       fileType = isPdf ? "pdf" : "doc"; m.textContent = t("bookFileDone"); }
-    catch (err) { bar.style.width = "0"; m.textContent = tooBig(err.message) ? t("fileTooBigHost") : t("uploadFail"); }
-    e.target.disabled = false; lock(-1);
+    catch (err) { bar.style.width = "0"; m.textContent = tooBig(err.message) ? t("fileTooBigHost") : t("uploadFail"); if (isPdf) $("#pdfTools").hidden = false; }
+    inp.disabled = false; lock(-1);
+  };
+  const showPick = () => {
+    $("#pdfTools").hidden = false; $("#pdfSize").textContent = t("fileSize").replace("{mb}", mbs(pick.size));
+    $("#bkMsg").textContent = pick.size > LIMIT ? t("needCompress") : t("cmpHint");
+  };
+  $("#bkFile").onchange = e => {
+    const f = e.target.files[0]; if (!f) return;
+    const isPdf = /\.pdf$/i.test(f.name) || f.type === "application/pdf", isDoc = /\.docx?$/i.test(f.name);
+    if (!isPdf && !isDoc) { e.target.value = ""; return toast(t("fileType"), true); }
+    $("#bkBar").style.width = "0";
+    if (isDoc) { $("#pdfTools").hidden = true; return upBook(f, false); }
+    pick = f; showPick();
+  };
+  $("#upNow").onclick = () => {
+    if (!pick) return;
+    if (pick.size > LIMIT) return toast(t("needCompress"), true);
+    upBook(pick, true);
+  };
+  $("#cmpBtn").onclick = async () => {
+    if (!pick) return; const m = $("#bkMsg"), bar = $("#bkBar"), before = pick.size;
+    lock(1); $$("#pdfTools button, #pdfTools select, #bkFile").forEach(x => x.disabled = true);
+    m.textContent = t("cmpLoading"); bar.style.width = "0";
+    try {
+      const blob = await compressPdf(pick, $("#cmpLevel").value, p => { bar.style.width = p + "%"; m.textContent = `${t("compressing")} ${p}%`; });
+      if (blob.size < before * 0.97) {
+        pick = new File([blob], pick.name.replace(/\.pdf$/i, "") + ".pdf", { type: "application/pdf" });
+        showPick(); m.textContent = t("cmpDone").replace("{a}", mbs(before)).replace("{b}", mbs(pick.size)).replace("{p}", Math.round((1 - pick.size / before) * 100))
+          + (pick.size > LIMIT ? " — " + t("cmpStillBig") : "");
+      } else { showPick(); m.textContent = t("cmpNoGain"); }
+      bar.style.width = "100%";
+    } catch (err) { console.error(err); bar.style.width = "0"; m.textContent = t("cmpFail"); }
+    $$("#pdfTools button, #pdfTools select, #bkFile").forEach(x => x.disabled = false); lock(-1);
   };
   F.onsubmit = async e => {
     e.preventDefault(); if (busy) return;
+    if (!cap.ok()) return toast(t("captchaNeed"), true);
     const g = k => String(F[k]?.value || "").trim();
     const data = { title: g("title"), desc: g("desc"), isAuthor: g("isAuthor"), lang: g("lang"), author: g("author"), category: g("category"), subcat: g("subcat"), readOnly: F.readOnly.checked };
     if (data.desc.length < 50) return toast(t("descShort"), true);
@@ -792,9 +838,11 @@ function pageAsk() {
       <label>${t("qTitle")}<input name="title" required maxlength="200"></label>
       <label>${t("yourQuestion")}<textarea name="body" rows="8" required maxlength="5000"></textarea></label>
       <label class="check"><input type="checkbox" name="hide"> ${t("hideName")}</label>
-      <button class="btn wide">${t("send")}</button></form></div>`;
+      ${capBox()}<button class="btn wide">${t("send")}</button></form></div>`;
+  const cap = captcha($("#askForm .cf-box"));
   $("#askForm").onsubmit = async e => {
     e.preventDefault();
+    if (!cap.ok()) return toast(t("captchaNeed"), true);
     const f = Object.fromEntries(new FormData(e.target));
     const bad = checkContent(f.title, f.body); if (bad) return toast(bad, true);
     e.target.querySelector("button").disabled = true;
@@ -820,6 +868,34 @@ function cloudUpload(file, res, onProgress) {
     xhr.onload = () => { let r = {}; try { r = JSON.parse(xhr.responseText); } catch {} if (r.secure_url) return ok(r.secure_url); fail(new Error(r.error?.message || "upload")); };
     xhr.onerror = () => fail(new Error("upload"));
     xhr.send(fd);
+  });
+}
+
+// التحقق من أن المستخدم إنسان (Cloudflare Turnstile) — يظهر فقط إذا وُضع siteKey في config.js
+let tsLoad;
+const loadTurnstile = () => tsLoad ||= new Promise((ok, fail) => {
+  const sc = document.createElement("script"); sc.src = "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit"; sc.async = true;
+  sc.onload = () => ok(window.turnstile); sc.onerror = () => { tsLoad = null; fail(new Error("turnstile")); }; document.head.appendChild(sc);
+});
+function captcha(box) {
+  const st = { token: "", failed: false };
+  if (!CAPTCHA?.siteKey || !box) return { ok: () => true, reset() {} };
+  loadTurnstile().then(ts => {
+    if (!box.isConnected) return;
+    st.id = ts.render(box, { sitekey: CAPTCHA.siteKey, language: lang, theme: "light",
+      callback: tk => { st.token = tk; }, "expired-callback": () => { st.token = ""; }, "error-callback": () => { st.token = ""; } });
+  }).catch(() => { st.failed = true; });
+  return { ok: () => st.failed || !!st.token, reset() { st.token = ""; try { window.turnstile.reset(st.id); } catch {} } };
+}
+const capBox = () => CAPTCHA?.siteKey ? `<div class="cf-box"></div>` : "";
+
+// ضغط PDF داخل المتصفح (عامل منفصل حتى لا تتجمّد الصفحة)
+function compressPdf(file, level, onProgress) {
+  return new Promise(async (ok, fail) => {
+    let w; try { w = new Worker("/compress-worker.js?v=1", { type: "module" }); } catch (e) { return fail(e); }
+    w.onmessage = e => { const m = e.data; if (m.progress != null) return onProgress?.(m.progress); w.terminate(); m.ok ? ok(new Blob([m.out], { type: "application/pdf" })) : fail(new Error(m.error)); };
+    w.onerror = e => { w.terminate(); fail(new Error(e.message || "worker")); };
+    const buf = await file.arrayBuffer(); w.postMessage({ data: buf, level }, [buf]);
   });
 }
 
@@ -855,7 +931,8 @@ async function pageNew(type, editId) {
       ? `<div class="upbox" data-kind="${f.upload}"><b>${t(au ? "uploadAudio" : "uploadVideo")}</b>${au && item?.url ? `<small class="muted">${t("currentFile")}</small><audio controls preload="none" src="${safeUrl(item.url)}"></audio>` : ""}<input type="file" id="upFile" accept="${au ? "audio/*" : "video/*"}"><div class="upbar"><i id="upBar"></i></div><small id="upMsg" class="muted">${t("uploadHint").replace("{mb}", UPLOAD.maxMB || 100)}</small></div>`
       : `<small class="muted">${t("uploadSoon")}</small>`);
   };
-  main().innerHTML = `<div class="card narrow"><h1>${item ? t("edit") + ": " + esc(item.title) : t(F.title)}</h1><form class="form" id="newForm">${F.fields.map(field).join("")}<button class="btn wide">${t("save")}</button></form></div>`;
+  main().innerHTML = `<div class="card narrow"><h1>${item ? t("edit") + ": " + esc(item.title) : t(F.title)}</h1><form class="form" id="newForm">${F.fields.map(field).join("")}${!item && !F.staff ? capBox() : ""}<button class="btn wide">${t("save")}</button></form></div>`;
+  const cap = captcha($("#newForm .cf-box"));
   const up = $("#upFile");
   if (up) up.onchange = async () => {
     const file = up.files[0]; if (!file) return;
@@ -871,6 +948,7 @@ async function pageNew(type, editId) {
   };
   $("#newForm").onsubmit = async e => {
     e.preventDefault();
+    if (!cap.ok()) return toast(t("captchaNeed"), true);
     const data = {};
     F.fields.forEach(f => data[f.k] = String(new FormData(e.target).get(f.k) || "").trim());
     if (F.fields.some(f => f.upload) && !data.url) return toast(t(type === "audio" ? "audioRequired" : "urlOrUpload"), true);
@@ -902,9 +980,11 @@ function pageContact() {
       <label>${t("email")}<input name="email" type="email" required maxlength="120" dir="ltr" value="${esc(user?.email || "")}"></label>
       <label>${t("subject")}<select name="subject">${["general", "suggestion", "problem", "deleteAccount", "joinSheikh"].map(k => `<option value="${k}">${t("subj_" + k)}</option>`).join("")}</select></label>
       <label>${t("message")}<textarea name="text" rows="7" required maxlength="3000"></textarea></label>
-      <button class="btn wide">${t("send")}</button></form></div>`;
+      ${capBox()}<button class="btn wide">${t("send")}</button></form></div>`;
+  const cap = captcha($("#ctForm .cf-box"));
   $("#ctForm").onsubmit = async e => {
     e.preventDefault();
+    if (!cap.ok()) return toast(t("captchaNeed"), true);
     const f = Object.fromEntries(new FormData(e.target)), btn = $("button", e.target); btn.disabled = true;
     try {
       await addDoc(collection(db, "messages"), { name: f.name.trim(), email: f.email.trim(), subject: f.subject, text: f.text.trim(), uid: user?.uid || "", createdAt: serverTimestamp() });

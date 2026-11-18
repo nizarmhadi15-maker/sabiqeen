@@ -31,3 +31,6 @@ export const UPLOAD = {
   maxMB: 100,         // أقصى حجم للفيديو/الصوت في الخطة المجانية
   photoMB: 5          // أقصى حجم للصورة الشخصية
 };
+
+// 5) التحقق من أن الزائر إنسان (Cloudflare Turnstile — مجاني). ضع Site Key هنا، واتركه فارغاً لإيقافه.
+export const CAPTCHA = { siteKey: "" };
