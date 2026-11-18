@@ -114,6 +114,7 @@ const ICON = {
 };
 const icon = (k, cls = "ic") => `<svg class="${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${ICON[k]}</svg>`;
 
+const myPhoto = () => (profile && "photo" in profile ? profile.photo : user?.photoURL) || "";
 function avatar(name, photo, size = 34) {
   const p = safeUrl(photo);
   return p ? `<img class="av" src="${p}" alt="" width="${size}" height="${size}" referrerpolicy="no-referrer">`
@@ -170,7 +171,7 @@ function renderShell() {
   $("#langBtn").textContent = lang === "ar" ? "EN" : "ع";
   $("#userbox").innerHTML = !authReady ? "" : user
     ? `${isSheikh() ? `<a class="btn ghost sm" href="#/panel">${t("panel")}</a>` : ""}${isAdmin() ? `<a class="btn ghost sm" href="#/admin">${t("admin")}</a>` : ""}
-       <a class="me" href="#/profile" title="${esc(myName())}">${avatar(myName(), user.photoURL)}</a>`
+       <a class="me" href="#/profile" title="${esc(myName())}">${avatar(myName(), myPhoto())}</a>`
     : `<a class="btn sm" href="#/login">${t("login")}</a>`;
 }
 $("#langBtn").onclick = () => { lang = lang === "ar" ? "en" : "ar"; localStorage.setItem("lang", lang); renderShell(); route(); };
@@ -276,6 +277,8 @@ function afterLogin() {
   location.hash = to && !to.includes("login") ? to : "#/";
 }
 
+const EYE = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/><path class="slash" d="M3 3l18 18"/></svg>';
+const pwField = (n, lbl, ac) => `<label>${lbl}<span class="pw-wrap"><input name="${n}" type="password" required minlength="6" autocomplete="${ac}" dir="ltr"><button type="button" class="pw-eye" title="${t("showPw")}" aria-label="${t("showPw")}">${EYE}</button></span></label>`;
 function pageLogin() {
   if (user) return afterLogin();
   let mode = "login";
@@ -289,7 +292,8 @@ function pageLogin() {
       <form id="aForm" class="form">
         ${mode === "register" ? `<label>${t("name")}<input name="name" required maxlength="60"></label>` : ""}
         <label>${t("email")}<input name="email" type="email" required autocomplete="email"></label>
-        ${mode !== "reset" ? `<label>${t("password")}<input name="pw" type="password" required minlength="6" autocomplete="${mode === "register" ? "new-password" : "current-password"}"></label>` : ""}
+        ${mode !== "reset" ? pwField("pw", t("password"), mode === "register" ? "new-password" : "current-password") : ""}
+        ${mode === "register" ? pwField("pw2", t("pwConfirm"), "new-password") : ""}
         <button class="btn wide">${mode === "reset" ? t("sendReset") : mode === "register" ? t("createAccount") : t("login")}</button>
       </form>
       <div class="auth-links">
@@ -297,6 +301,7 @@ function pageLogin() {
         : `<a href="#" data-m="login">${t("backToLogin")}</a>`}
       </div>
     </div>`;
+    $$(".pw-eye").forEach(b => b.onclick = () => { const i = b.previousElementSibling, show = i.type === "password"; i.type = show ? "text" : "password"; b.classList.toggle("on", show); });
     $$(".auth-links a").forEach(a => a.onclick = e => { e.preventDefault(); mode = a.dataset.m; draw(); });
     const g = $("#gBtn");
     if (g) g.onclick = async () => {
@@ -315,6 +320,7 @@ function pageLogin() {
         if (mode === "reset") { await sendPasswordResetEmail(auth, f.email.trim()); toast(t("resetSent")); mode = "login"; draw(); return; }
         if (mode === "register") {
           const name = f.name.trim();
+          if (f.pw !== f.pw2) { toast(t("pwMismatch"), true); btn.disabled = false; return; }
           if (findBad(name, MOD_WORDS)) { toast(t("badWords"), true); btn.disabled = false; return; }
           if (nameKey(name).length < 2) { toast(t("nameShort"), true); btn.disabled = false; return; }
           if (isDisposable(f.email)) { toast(t("tempEmail"), true); btn.disabled = false; return; }
@@ -341,7 +347,7 @@ function pageLogin() {
 async function comments(el, coll, id, kind = "comments") {
   const col = collection(db, coll, id, "comments");
   el.innerHTML = `<h3>${t(kind)} <span class="count"></span></h3><div class="clist"></div>
-    ${isBanned() ? `<p class="login-hint">${t("bannedMsg")}</p>` : user ? `<form class="cform">${avatar(myName(), user.photoURL)}<textarea required maxlength="3000" placeholder="${t(kind === "replies" ? "writeReply" : "writeComment")}"></textarea><button class="btn sm">${t("send")}</button></form>`
+    ${isBanned() ? `<p class="login-hint">${t("bannedMsg")}</p>` : user ? `<form class="cform">${avatar(myName(), myPhoto())}<textarea required maxlength="3000" placeholder="${t(kind === "replies" ? "writeReply" : "writeComment")}"></textarea><button class="btn sm">${t("send")}</button></form>`
       : `<a class="login-hint" href="#/login" onclick="sessionStorage.setItem('after',location.hash)">${t("loginToComment")}</a>`}`;
   const load = async () => {
     const s = await getDocs(query(col, orderBy("createdAt", "asc"), limit(500)));
@@ -378,7 +384,7 @@ async function comments(el, coll, id, kind = "comments") {
     const bad = checkContent(text); if (bad) return toast(bad, true);
     const btn = $("button", f); btn.disabled = true;
     try {
-      const data = { text, uid: user.uid, name: myName(), photo: user.photoURL || "", createdAt: serverTimestamp() };
+      const data = { text, uid: user.uid, name: myName(), photo: myPhoto(), createdAt: serverTimestamp() };
       if (isSheikh()) data.badge = "sheikh";
       await addDoc(col, data); markPosted(); bump("comments"); ta.value = ""; await load();
     } catch (err) { toast(errMsg(err), true); }
@@ -610,10 +616,24 @@ function pageAsk() {
 }
 
 // ---------- add content ----------
+// ---------- رفع الملفات إلى Cloudinary ----------
+const canUpload = () => !!(UPLOAD?.cloudName && UPLOAD?.videoPreset);
+function cloudUpload(file, res, onProgress) {
+  return new Promise((ok, fail) => {
+    const fd = new FormData(); fd.append("file", file); fd.append("upload_preset", UPLOAD.videoPreset);
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", `https://api.cloudinary.com/v1_1/${UPLOAD.cloudName}/${res}/upload`);
+    xhr.upload.onprogress = ev => { if (ev.lengthComputable && onProgress) onProgress(Math.round(ev.loaded / ev.total * 100)); };
+    xhr.onload = () => { try { const r = JSON.parse(xhr.responseText); if (r.secure_url) return ok(r.secure_url); } catch {} fail(new Error("upload")); };
+    xhr.onerror = () => fail(new Error("upload"));
+    xhr.send(fd);
+  });
+}
+
 const FORMS = {
   post: { coll: "posts", staff: true, title: "newPost", fields: [{ k: "title" }, { k: "body", type: "textarea", rows: 14 }] },
   video: { coll: "videos", staff: true, title: "newVideo", fields: [{ k: "title" }, { k: "speaker" }, { k: "url", type: "url", label: "videoUrl", opt: true, upload: "video" }, { k: "category", type: "select", opts: CATS.videos }, { k: "desc", type: "textarea", opt: true }] },
-  audio: { coll: "audios", staff: true, title: "newAudio", fields: [{ k: "title" }, { k: "speaker" }, { k: "url", type: "url", label: "audioUrl" }, { k: "category", type: "select", opts: CATS.audios }, { k: "desc", type: "textarea", opt: true }] },
+  audio: { coll: "audios", staff: true, title: "newAudio", fields: [{ k: "title" }, { k: "speaker" }, { k: "url", type: "hidden", upload: "audio" }, { k: "category", type: "select", opts: CATS.audios }, { k: "desc", type: "textarea", opt: true }] },
   book: { coll: "books", staff: true, title: "newBook", fields: [{ k: "title" }, { k: "author" }, { k: "url", type: "url", label: "pdfUrl" }, { k: "cover", type: "url", opt: true }, { k: "category", type: "select", opts: CATS.books }, { k: "desc", type: "textarea", opt: true }] },
   thread: { coll: "threads", staff: false, title: "newThread", fields: [{ k: "title" }, { k: "category", type: "select", opts: CATS.threads }, { k: "body", type: "textarea", rows: 10 }] }
 };
@@ -633,35 +653,33 @@ async function pageNew(type, editId) {
     const lbl = `${t(f.label || f.k)}${f.opt ? ` <small>(${t("optional")})</small>` : ""}`, req = f.opt ? "" : "required";
     if (f.type === "textarea") return `<label>${lbl}<textarea name="${f.k}" rows="${f.rows || 5}" ${req}>${v(f.k)}</textarea></label>`;
     if (f.type === "select") return `<label>${lbl}<select name="${f.k}">${f.opts.map(o => `<option value="${o}"${item?.[f.k] === o ? " selected" : ""}>${t("cat_" + o)}</option>`).join("")}</select></label>`;
-    const inp = `<label>${lbl}<input name="${f.k}" value="${v(f.k)}" type="${f.type || "text"}" ${req} ${f.type === "url" ? 'dir="ltr" placeholder="https://"' : 'maxlength="200"'}></label>`;
-    if (f.upload !== "video") return inp;
-    return inp + (UPLOAD?.cloudName && UPLOAD?.videoPreset
-      ? `<div class="upbox"><b>${t("uploadVideo")}</b><input type="file" id="upFile" accept="video/*"><div class="upbar"><i id="upBar"></i></div><small id="upMsg" class="muted">${t("uploadHint").replace("{mb}", UPLOAD.maxMB || 100)}</small></div>`
+    const inp = f.type === "hidden" ? `<input type="hidden" name="${f.k}" value="${v(f.k)}">`
+      : `<label>${lbl}<input name="${f.k}" value="${v(f.k)}" type="${f.type || "text"}" ${req} ${f.type === "url" ? 'dir="ltr" placeholder="https://"' : 'maxlength="200"'}></label>`;
+    if (!f.upload) return inp;
+    const au = f.upload === "audio";
+    return inp + (canUpload()
+      ? `<div class="upbox" data-kind="${f.upload}"><b>${t(au ? "uploadAudio" : "uploadVideo")}</b>${au && item?.url ? `<small class="muted">${t("currentFile")}</small><audio controls preload="none" src="${safeUrl(item.url)}"></audio>` : ""}<input type="file" id="upFile" accept="${au ? "audio/*" : "video/*"}"><div class="upbar"><i id="upBar"></i></div><small id="upMsg" class="muted">${t("uploadHint").replace("{mb}", UPLOAD.maxMB || 100)}</small></div>`
       : `<small class="muted">${t("uploadSoon")}</small>`);
   };
   main().innerHTML = `<div class="card narrow"><h1>${item ? t("edit") + ": " + esc(item.title) : t(F.title)}</h1><form class="form" id="newForm">${F.fields.map(field).join("")}<button class="btn wide">${t("save")}</button></form></div>`;
   const up = $("#upFile");
-  if (up) up.onchange = () => {
+  if (up) up.onchange = async () => {
     const file = up.files[0]; if (!file) return;
-    const msg = $("#upMsg"), bar = $("#upBar"), save = $("#newForm > button");
-    if (file.size > (UPLOAD.maxMB || 100) * 1048576) { msg.textContent = t("uploadTooBig").replace("{mb}", UPLOAD.maxMB || 100); up.value = ""; return; }
-    const fd = new FormData(); fd.append("file", file); fd.append("upload_preset", UPLOAD.videoPreset);
-    const xhr = new XMLHttpRequest();
-    xhr.open("POST", `https://api.cloudinary.com/v1_1/${UPLOAD.cloudName}/video/upload`);
-    xhr.upload.onprogress = ev => { if (ev.lengthComputable) { const p = Math.round(ev.loaded / ev.total * 100); bar.style.width = p + "%"; msg.textContent = `${t("uploading")} ${p}%`; } };
-    xhr.onload = () => {
-      save.disabled = false; up.disabled = false;
-      try { const r = JSON.parse(xhr.responseText); if (r.secure_url) { $("#newForm [name=url]").value = r.secure_url; msg.textContent = t("uploadDone"); bar.style.width = "100%"; return; } } catch {}
-      msg.textContent = t("uploadFail"); bar.style.width = "0";
-    };
-    xhr.onerror = () => { save.disabled = false; up.disabled = false; msg.textContent = t("uploadFail"); };
-    save.disabled = true; up.disabled = true; xhr.send(fd);
+    const au = up.closest(".upbox").dataset.kind === "audio";
+    const msg = $("#upMsg"), bar = $("#upBar"), save = $("#newForm > button"), mb = UPLOAD.maxMB || 100;
+    if (file.size > mb * 1048576) { msg.textContent = t(au ? "audioTooBig" : "uploadTooBig").replace("{mb}", mb); up.value = ""; return; }
+    save.disabled = true; up.disabled = true;
+    try {
+      const url = await cloudUpload(file, "video", p => { bar.style.width = p + "%"; msg.textContent = `${t("uploading")} ${p}%`; });
+      $("#newForm [name=url]").value = url; msg.textContent = t(au ? "audioDone" : "uploadDone"); bar.style.width = "100%";
+    } catch { msg.textContent = t(au ? "audioFail" : "uploadFail"); bar.style.width = "0"; }
+    save.disabled = false; up.disabled = false;
   };
   $("#newForm").onsubmit = async e => {
     e.preventDefault();
     const data = {};
     F.fields.forEach(f => data[f.k] = String(new FormData(e.target).get(f.k) || "").trim());
-    if (F.fields.some(f => f.upload) && !data.url) return toast(t("urlOrUpload"), true);
+    if (F.fields.some(f => f.upload) && !data.url) return toast(t(type === "audio" ? "audioRequired" : "urlOrUpload"), true);
     const bad = checkContent(...F.fields.filter(f => f.type !== "url" && f.type !== "select").map(f => data[f.k])); if (bad) return toast(bad, true);
     e.target.querySelector("button").disabled = true;
     try {
@@ -669,7 +687,7 @@ async function pageNew(type, editId) {
         await updateDoc(doc(db, F.coll, editId), { ...data, updatedAt: serverTimestamp() });
         toast(t("saved")); location.hash = `#/${ROUTE_OF[F.coll]}/${editId}`;
       } else {
-        Object.assign(data, { uid: user.uid, name: myName(), photo: user.photoURL || "", createdAt: serverTimestamp() });
+        Object.assign(data, { uid: user.uid, name: myName(), photo: myPhoto(), createdAt: serverTimestamp() });
         const r = await addDoc(collection(db, F.coll), data); markPosted(); bump(F.coll === "threads" ? "threads" : "content"); location.hash = `#/${ROUTE_OF[F.coll]}/${r.id}`;
       }
     } catch (err) { toast(errMsg(err), true); e.target.querySelector("button").disabled = false; }
@@ -785,8 +803,9 @@ async function pageProfile() {
   const qs = s.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => ms(b.createdAt) - ms(a.createdAt));
   const r = isAdmin() ? "admin" : role();
   main().innerHTML = `<div class="card narrow profile">
-      <div class="author-row">${avatar(myName(), user.photoURL, 56)}<div><h1>${esc(myName())}</h1><div class="meta" dir="ltr">${esc(user.email || "")}</div>
+      <div class="author-row">${avatar(myName(), myPhoto(), 88)}<div><h1>${esc(myName())}</h1><div class="meta" dir="ltr">${esc(user.email || "")}</div>
       <span class="badge ${r}">${t("role_" + r)}</span></div></div>
+      ${canUpload() ? `<div class="photo-row"><label class="btn ghost sm">${t("changePhoto")}<input type="file" id="phFile" accept="image/*" hidden></label>${myPhoto() ? `<button class="btn ghost sm danger" id="phDel">${t("removePhoto")}</button>` : ""}<small class="muted" id="phMsg"></small></div>` : ""}
       ${needsVerify() ? `<div class="verify-box"><p>${t("verifyBox")}</p><div class="row-btns"><button class="btn sm" id="vDone">${t("verifyDone")}</button><button class="btn ghost sm" id="vResend">${t("verifyResend")}</button></div></div>` : ""}
       <form class="form inline" id="nameForm"><label>${t("name")}<input name="name" value="${esc(myName())}" required maxlength="60"></label><button class="btn sm">${t("save")}</button></form>
       <button class="btn ghost sm danger" id="outBtn">${t("logout")}</button>
@@ -795,6 +814,22 @@ async function pageProfile() {
       ${qs.length ? `<div class="list">${qs.map(q => `<a class="item row" href="#/fatwa/${q.id}"><h3>${esc(q.title || excerpt(q.body, 80))}</h3>
         <span class="status ${q.status}">${t(q.status)}</span></a>`).join("")}</div>` : `<div class="empty sm">${t("empty")}</div>`}</div>`;
   $("#outBtn").onclick = async () => { await signOut(auth); location.hash = "#/"; };
+  const setPhoto = async url => {
+    await updateDoc(doc(db, "users", user.uid), { photo: url });
+    try { await updateProfile(user, { photoURL: url || null }); } catch {}
+    profile = { ...profile, photo: url }; renderShell(); toast(t("photoSaved")); pageProfile();
+  };
+  const ph = $("#phFile"); if (ph) ph.onchange = async () => {
+    const f = ph.files[0]; if (!f) return;
+    if (!/^image\//.test(f.type)) return;
+    if (f.size > (UPLOAD.photoMB || 5) * 1048576) { ph.value = ""; return toast(t("photoTooBig"), true); }
+    const m = $("#phMsg"); m.textContent = t("photoUploading");
+    try {
+      const url = await cloudUpload(f, "image", p => m.textContent = `${t("photoUploading")} ${p}%`);
+      await setPhoto(url.replace("/image/upload/", "/image/upload/c_fill,g_face,w_256,h_256,q_auto,f_auto/"));
+    } catch (e) { m.textContent = ""; toast(t("uploadFail"), true); }
+  };
+  const pd = $("#phDel"); if (pd) pd.onclick = () => setPhoto("").catch(e => toast(errMsg(e), true));
   const vd = $("#vDone"); if (vd) vd.onclick = async () => {
     await reload(user); await user.getIdToken(true);
     if (user.emailVerified) { toast(t("verifyOk")); renderShell(); pageProfile(); } else toast(t("verifyNot"), true);

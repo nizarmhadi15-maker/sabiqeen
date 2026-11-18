@@ -28,5 +28,6 @@ export const SITE = {
 export const UPLOAD = {
   cloudName: "aqchjgsw",           // اسم الحساب في Cloudinary
   videoPreset: "sabiqeen_videos",  // اسم Upload preset (Unsigned)
-  maxMB: 100          // أقصى حجم للفيديو في الخطة المجانية
+  maxMB: 100,         // أقصى حجم للفيديو/الصوت في الخطة المجانية
+  photoMB: 5          // أقصى حجم للصورة الشخصية
 };
