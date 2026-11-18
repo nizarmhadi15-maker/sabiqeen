@@ -15,7 +15,7 @@ export const ADMIN_EMAILS = ["nizarmhadi15@gmail.com"];
 
 // 3) اسم الموقع وشعاره
 export const SITE = {
-  name: { ar: "مِشكاة", en: "Mishkat" },
+  name: { ar: "مكتبة السابقين", en: "Al-Sabiqeen Library" },
   tagline: {
     ar: "منصّة إسلامية للعلم والفتوى والحوار",
     en: "An Islamic platform for knowledge, fatwa and discussion"
