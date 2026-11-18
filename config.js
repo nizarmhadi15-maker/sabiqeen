@@ -10,8 +10,8 @@ export const firebaseConfig = {
   appId: "1:713254935157:web:f2f7e82526b81adabbf63c"
 };
 
-// 2) بريد المدير (أنت) — نفس البريد يجب وضعه في firestore.rules
-export const ADMIN_EMAILS = ["nizarmhadi15@gmail.com"];
+// 2) المدير يُحدَّد من قاعدة البيانات (users/<uid>.role = "admin") — لا تضع بريداً هنا
+export const ADMIN_EMAILS = [];
 
 // 3) اسم الموقع وشعاره
 export const SITE = {
