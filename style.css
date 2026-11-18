@@ -215,3 +215,5 @@ footer small{display:block}
 @media (max-width:960px){.secs{grid-template-columns:repeat(2,1fr)}}
 
 .brand,.btn,#nav a{white-space:nowrap}
+.contact-mail{background:var(--gold-l);border-radius:10px;padding:10px 14px}
+.contact-mail a{font-weight:700}

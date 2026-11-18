@@ -20,5 +20,6 @@ export const SITE = {
     ar: "منصّة إسلامية للعلم والفتوى والحوار",
     en: "An Islamic platform for knowledge, fatwa and discussion"
   },
+  contactEmail: "nizarhron1@gmail.com",
   defaultLang: "ar"
 };

@@ -540,6 +540,7 @@ function pageStatic(key) {
 }
 function pageContact() {
   main().innerHTML = `<div class="card narrow"><h1>${t("contactUs")}</h1><p class="muted">${t("contactNote")}</p>
+    ${SITE.contactEmail ? `<p class="contact-mail">${t("orEmail")} <a href="mailto:${esc(SITE.contactEmail)}" dir="ltr">${esc(SITE.contactEmail)}</a></p>` : ""}
     <form class="form" id="ctForm">
       <label>${t("name")}<input name="name" required maxlength="80" value="${esc(user ? myName() : "")}"></label>
       <label>${t("email")}<input name="email" type="email" required maxlength="120" dir="ltr" value="${esc(user?.email || "")}"></label>
