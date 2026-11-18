@@ -604,7 +604,7 @@ async function approveBook(id) {
 // ---------- publisher info (required before publishing a book) ----------
 const countryList = () => Object.keys(CC_NAME).filter(c => c !== "JRS" && c !== "XX")
   .sort((a, b) => CC_NAME[a][lang === "ar" ? 0 : 1].localeCompare(CC_NAME[b][lang === "ar" ? 0 : 1], lang)).concat("XX");
-const pubReady = () => !!(profile?.publisher && profile?.phone && profile?.country && profile?.city && profile?.birth);
+const pubReady = () => !!(profile?.publisher && profile?.phone && profile?.country && profile?.city && profile?.birth && profile?.gender);
 async function pagePublisher() {
   if (!requireLogin()) return;
   if (isBanned()) return main().innerHTML = `<div class="empty">${t("bannedMsg")}</div>`;
@@ -623,6 +623,7 @@ async function pagePublisher() {
         const sel = (n, ph, arr, cur) => `<select name="${n}" required aria-label="${ph}"><option value="">${ph}</option>${arr.map(x => `<option value="${x}"${x === cur ? " selected" : ""}>${x}</option>`).join("")}</select>`;
         const rng = (a, b) => Array.from({ length: Math.abs(b - a) + 1 }, (_, i) => a < b ? a + i : a - i);
         return sel("bd", t("day"), rng(1, 31), dd) + sel("bm", t("month"), rng(1, 12), mm) + sel("by", t("yearLbl"), rng(maxY, 1920), yy); })()}</div>
+      <label>${t("gender")} <small class="lock">${t("privateNote")}</small><select name="gender" required><option value="">${t("choose")}</option>${["male", "female"].map(g => `<option value="${g}"${P.gender === g ? " selected" : ""}>${t("g_" + g)}</option>`).join("")}</select></label>
       <label>${t("bio")} <small>${t("bioNote")}</small><textarea name="bio" rows="4" required minlength="20" maxlength="600">${esc(pub.bio || "")}</textarea></label>
       <button class="btn wide">${t(next ? "saveContinue" : "save")}</button>
     </form></div>`;
@@ -640,7 +641,8 @@ async function pagePublisher() {
     const btn = e.target.querySelector("button"); btn.disabled = true;
     try {
       await setDoc(doc(db, "publishers", user.uid), { name: myName(), country: f.country, bio: f.bio, updatedAt: serverTimestamp() });
-      const priv = { phone: f.phone, country: f.country, city: f.city, birth: f.birth, publisher: true };
+      if (f.gender !== "male" && f.gender !== "female") { btn.disabled = false; return toast(t("chooseGender"), true); }
+      const priv = { phone: f.phone, country: f.country, city: f.city, birth: f.birth, gender: f.gender, publisher: true };
       await updateDoc(doc(db, "users", user.uid), priv);
       profile = { ...profile, ...priv }; toast(t("saved"));
       sessionStorage.removeItem("pubNext"); go(next || "/profile");
@@ -888,6 +890,32 @@ function captcha(box) {
 }
 const capBox = () => CAPTCHA?.siteKey ? `<div class="cf-box"></div>` : "";
 
+// ضغط الفيديو والصوت داخل المتصفح (WebCodecs عبر مكتبة Mediabunny) — يُخرج MP4 للفيديو و M4A للصوت
+let mbLib;
+async function compressMedia(file, isAudio, level, onProgress) {
+  const M = await (mbLib ||= import("https://cdn.jsdelivr.net/npm/mediabunny@1/+esm"));
+  const input = new M.Input({ source: new M.BlobSource(file), formats: M.ALL_FORMATS });
+  const output = new M.Output({ format: new M.Mp4OutputFormat({ fastStart: "in-memory" }), target: new M.BufferTarget() });
+  const strong = level === "strong", opts = {};
+  if (isAudio) {
+    opts.video = { discard: true };
+    opts.audio = { bitrate: strong ? 40e3 : 64e3, ...(strong ? { numberOfChannels: 1 } : {}), forceTranscode: true };
+  } else {
+    const vt = await input.getPrimaryVideoTrack(); if (!vt) throw new Error("no video");
+    const w = vt.displayWidth, h = vt.displayHeight, target = strong ? 480 : 720, short = Math.min(w, h);
+    const scale = short > target ? target / short : 1;
+    opts.video = { width: Math.round(w * scale / 2) * 2, bitrate: strong ? 350e3 : 900e3, forceTranscode: true };
+    opts.audio = { bitrate: strong ? 48e3 : 96e3, forceTranscode: true };
+  }
+  const conv = await M.Conversion.init({ input, output, ...opts });
+  if (conv.isValid === false) throw new Error("invalid conversion");
+  conv.onProgress = p => onProgress?.(Math.min(99, Math.round(p * 100)));
+  await conv.execute();
+  const buf = output.target.buffer;
+  const base = file.name.replace(/\.[^.]+$/, "");
+  return new File([buf], base + (isAudio ? ".m4a" : ".mp4"), { type: isAudio ? "audio/mp4" : "video/mp4" });
+}
+
 // ضغط PDF داخل المتصفح (عامل منفصل حتى لا تتجمّد الصفحة)
 function compressPdf(file, level, onProgress) {
   return new Promise(async (ok, fail) => {
@@ -927,24 +955,52 @@ async function pageNew(type, editId) {
     if (!f.upload) return inp;
     const au = f.upload === "audio";
     return inp + (canUpload()
-      ? `<div class="upbox" data-kind="${f.upload}"><b>${t(au ? "uploadAudio" : "uploadVideo")}</b>${au && item?.url ? `<small class="muted">${t("currentFile")}</small><audio controls preload="none" src="${safeUrl(item.url)}"></audio>` : ""}<input type="file" id="upFile" accept="${au ? "audio/*" : "video/*"}"><div class="upbar"><i id="upBar"></i></div><small id="upMsg" class="muted">${t("uploadHint").replace("{mb}", UPLOAD.maxMB || 100)}</small></div>`
+      ? `<div class="upbox" data-kind="${f.upload}"><b>${t(au ? "uploadAudio" : "uploadVideo")}</b>${au && item?.url ? `<small class="muted">${t("currentFile")}</small><audio controls preload="none" src="${safeUrl(item.url)}"></audio>` : ""}<input type="file" id="upFile" accept="${au ? "audio/*" : "video/*"}">
+        <div class="pdftools" id="mTools" hidden><b id="mSize"></b>
+          <select id="mLevel" aria-label="${t("compressBtn")}"><option value="mid">${t(au ? "mCmpMidA" : "mCmpMidV")}</option><option value="strong">${t(au ? "mCmpStrongA" : "mCmpStrongV")}</option></select>
+          <button type="button" class="btn ghost sm" id="mCmp">🗜 ${t(au ? "compressAudio" : "compressVideo")}</button><button type="button" class="btn sm" id="mUp">⬆ ${t(au ? "uploadAudioBtn" : "uploadVideoBtn")}</button></div>
+        <div class="upbar"><i id="upBar"></i></div><small id="upMsg" class="muted">${t("uploadHint").replace("{mb}", UPLOAD.maxMB || 100)}</small></div>`
       : `<small class="muted">${t("uploadSoon")}</small>`);
   };
   main().innerHTML = `<div class="card narrow"><h1>${item ? t("edit") + ": " + esc(item.title) : t(F.title)}</h1><form class="form" id="newForm">${F.fields.map(field).join("")}${!item && !F.staff ? capBox() : ""}<button class="btn wide">${t("save")}</button></form></div>`;
   const cap = captcha($("#newForm .cf-box"));
   const up = $("#upFile");
-  if (up) up.onchange = async () => {
-    const file = up.files[0]; if (!file) return;
-    const au = up.closest(".upbox").dataset.kind === "audio";
-    const msg = $("#upMsg"), bar = $("#upBar"), save = $("#newForm > button"), mb = UPLOAD.maxMB || 100;
-    if (file.size > mb * 1048576) { msg.textContent = t(au ? "audioTooBig" : "uploadTooBig").replace("{mb}", mb); up.value = ""; return; }
-    save.disabled = true; up.disabled = true;
-    try {
-      const url = await cloudUpload(file, "video", p => { bar.style.width = p + "%"; msg.textContent = `${t("uploading")} ${p}%`; });
-      $("#newForm [name=url]").value = url; msg.textContent = t(au ? "audioDone" : "uploadDone"); bar.style.width = "100%";
-    } catch { msg.textContent = t(au ? "audioFail" : "uploadFail"); bar.style.width = "0"; }
-    save.disabled = false; up.disabled = false;
-  };
+  if (up) {
+    const au = up.closest(".upbox").dataset.kind === "audio", MB = 1048576, mb = UPLOAD.maxMB || 100, LIM = mb * MB, mbs = n => (n / MB).toFixed(1);
+    const msg = $("#upMsg"), bar = $("#upBar"), save = $("#newForm > button"), tools = $("#mTools");
+    let pick = null;
+    const ctl = d => { $$("#mTools button, #mTools select").forEach(x => x.disabled = d); up.disabled = d; save.disabled = d; };
+    const show = () => { tools.hidden = false; $("#mSize").textContent = t("fileSizeM").replace("{mb}", mbs(pick.size)); };
+    up.onchange = () => {
+      const f = up.files[0]; if (!f) return;
+      pick = f; bar.style.width = "0"; show();
+      msg.textContent = f.size > LIM ? t("mNeedCompress").replace("{mb}", mb) : t("mCmpHint");
+    };
+    $("#mUp").onclick = async () => {
+      if (!pick) return;
+      if (pick.size > LIM) return toast(t("mNeedCompress").replace("{mb}", mb), true);
+      ctl(true); tools.hidden = true;
+      try {
+        const url = await cloudUpload(pick, "video", p => { bar.style.width = p + "%"; msg.textContent = `${t("uploading")} ${p}%`; });
+        $("#newForm [name=url]").value = url; msg.textContent = t(au ? "audioDone" : "uploadDone"); bar.style.width = "100%";
+      } catch { msg.textContent = t(au ? "audioFail" : "uploadFail"); bar.style.width = "0"; tools.hidden = false; }
+      ctl(false);
+    };
+    $("#mCmp").onclick = async () => {
+      if (!pick) return; const before = pick.size;
+      ctl(true); bar.style.width = "0"; msg.textContent = t("cmpLoading");
+      try {
+        const out = await compressMedia(pick, au, $("#mLevel").value, p => { bar.style.width = p + "%"; msg.textContent = `${t("compressing")} ${p}%`; });
+        if (out.size < before * 0.97) {
+          pick = out; show();
+          msg.textContent = t("cmpDoneM").replace("{a}", mbs(before)).replace("{b}", mbs(out.size)).replace("{p}", Math.round((1 - out.size / before) * 100))
+            + (out.size > LIM ? " — " + t("mStillBig") : "");
+        } else { msg.textContent = t("mNoGain"); }
+        bar.style.width = "100%";
+      } catch (err) { console.error(err); bar.style.width = "0"; msg.textContent = t("mCmpFail"); }
+      ctl(false);
+    };
+  }
   $("#newForm").onsubmit = async e => {
     e.preventDefault();
     if (!cap.ok()) return toast(t("captchaNeed"), true);
