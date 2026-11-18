@@ -1,6 +1,7 @@
 import { firebaseConfig, SITE, ADMIN_EMAILS } from "./config.js";
 import { I18N } from "./i18n.js";
 import { PAGES } from "./pages.js";
+import { DEFAULT_WORDS, findBad, hasLink, buildPattern, HIDE_AFTER_REPORTS, COOLDOWN_SEC } from "./moderation.js";
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import {
   getAuth, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signInWithRedirect,
@@ -8,7 +9,7 @@ import {
   updateProfile, signOut
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import {
-  getFirestore, collection, doc, addDoc, getDoc, getDocs, setDoc, updateDoc, deleteDoc,
+  getFirestore, collection, doc, addDoc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, arrayUnion,
   query, where, orderBy, limit, serverTimestamp
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
@@ -33,6 +34,33 @@ const isAdmin = () => !!user && (role() === "admin" ||
   (user.emailVerified && ADMIN_EMAILS.map(e => e.toLowerCase()).includes((user.email || "").toLowerCase())));
 const isSheikh = () => isAdmin() || role() === "sheikh";
 const isBanned = () => !!user && !isAdmin() && role() === "banned";
+
+// ---------- auto moderation ----------
+let MOD_WORDS = DEFAULT_WORDS;
+getDoc(doc(db, "settings", "moderation")).then(s => { if (s.exists() && Array.isArray(s.data().words)) MOD_WORDS = s.data().words; }).catch(() => {});
+function checkContent(...texts) {
+  const all = texts.join(" \n ");
+  if (findBad(all, MOD_WORDS)) return t("badWords");
+  if (!isSheikh() && hasLink(all)) return t("noLinks");
+  if (!isSheikh()) {
+    let last = 0; try { last = +localStorage.getItem("lastPost") || 0; } catch {}
+    const wait = Math.ceil(COOLDOWN_SEC - (Date.now() - last) / 1000);
+    if (wait > 0) return t("slowDown").replace("{s}", wait);
+  }
+  return null;
+}
+const markPosted = () => { try { localStorage.setItem("lastPost", Date.now()); } catch {} };
+const isHidden = x => (x.reporters || []).length >= HIDE_AFTER_REPORTS;
+async function report(path, item, routeHash) {
+  if (!requireLogin()) return false;
+  try {
+    await updateDoc(doc(db, path), { reporters: arrayUnion(user.uid) });
+    const n = new Set([...(item.reporters || []), user.uid]).size;
+    if (n >= HIDE_AFTER_REPORTS && (item.reporters || []).length < HIDE_AFTER_REPORTS)
+      await addDoc(collection(db, "flags"), { path, route: routeHash, text: String(item.text || item.body || "").slice(0, 500), title: item.title || "", name: item.name || "", uid: user.uid, createdAt: serverTimestamp() });
+    toast(t("reportThanks")); return true;
+  } catch (e) { toast(errMsg(e), true); return false; }
+}
 const myName = () => profile?.name || user?.displayName || (user?.email || "").split("@")[0];
 const siteName = () => SITE.name[lang] || SITE.name.ar;
 
@@ -220,6 +248,7 @@ function pageLogin() {
       try {
         if (mode === "reset") { await sendPasswordResetEmail(auth, f.email.trim()); toast(t("resetSent")); mode = "login"; draw(); return; }
         if (mode === "register") {
+          if (findBad(f.name, MOD_WORDS)) { toast(t("badWords"), true); btn.disabled = false; return; }
           const cred = await createUserWithEmailAndPassword(auth, f.email.trim(), f.pw);
           const name = f.name.trim();
           await updateProfile(cred.user, { displayName: name });
@@ -244,13 +273,15 @@ async function comments(el, coll, id, kind = "comments") {
       : `<a class="login-hint" href="#/login" onclick="sessionStorage.setItem('after',location.hash)">${t("loginToComment")}</a>`}`;
   const load = async () => {
     const s = await getDocs(query(col, orderBy("createdAt", "asc"), limit(500)));
-    const list = s.docs.map(d => ({ id: d.id, ...d.data() }));
+    const list = s.docs.map(d => ({ id: d.id, ...d.data() })).filter(c => isAdmin() || !isHidden(c));
     $(".count", el).textContent = list.length ? `(${list.length})` : "";
     $(".clist", el).innerHTML = list.length ? list.map(c => `
-      <div class="comment${c.badge ? " is-sheikh" : ""}">
+      <div class="comment${c.badge ? " is-sheikh" : ""}${isHidden(c) ? " hidden-c" : ""}">
         ${avatar(c.name, c.photo)}
         <div class="cbody">
           <div class="cmeta"><b>${esc(c.name)}</b>${sheikhBadge(c.badge)}<span>${fmtDate(c.createdAt)}</span>
+            ${isHidden(c) ? `<span class="tag bad">${t("hiddenByReports")}</span><button class="link" data-restore="${c.id}">${t("restore")}</button>` : ""}
+            ${user && c.uid !== user.uid && !(c.reporters || []).includes(user.uid) && !isBanned() ? `<button class="link muted" data-rep="${c.id}">${t("report")}</button>` : ""}
             ${user && (c.uid === user.uid || isAdmin()) ? `<button class="link danger" data-del="${c.id}">${t("delete")}</button>` : ""}</div>
           <div class="ctext">${nl(c.text)}</div>
         </div>
@@ -259,16 +290,25 @@ async function comments(el, coll, id, kind = "comments") {
       if (!confirm(t("confirmDelete"))) return;
       try { await deleteDoc(doc(col, b.dataset.del)); load(); } catch (e) { toast(errMsg(e), true); }
     });
+    $$("[data-rep]", el).forEach(b => b.onclick = async () => {
+      if (!confirm(t("confirmReport"))) return;
+      const c = list.find(x => x.id === b.dataset.rep);
+      if (await report(`${coll}/${id}/comments/${c.id}`, c, `#/${ROUTE_OF[coll]}/${id}`)) load();
+    });
+    $$("[data-restore]", el).forEach(b => b.onclick = async () => {
+      try { await updateDoc(doc(col, b.dataset.restore), { reporters: [] }); load(); } catch (e) { toast(errMsg(e), true); }
+    });
   };
   const f = $(".cform", el);
   if (f) f.onsubmit = async e => {
     e.preventDefault();
     const ta = $("textarea", f), text = ta.value.trim(); if (!text) return;
+    const bad = checkContent(text); if (bad) return toast(bad, true);
     const btn = $("button", f); btn.disabled = true;
     try {
       const data = { text, uid: user.uid, name: myName(), photo: user.photoURL || "", createdAt: serverTimestamp() };
       if (isSheikh()) data.badge = "sheikh";
-      await addDoc(col, data); ta.value = ""; await load();
+      await addDoc(col, data); markPosted(); ta.value = ""; await load();
     } catch (err) { toast(errMsg(err), true); }
     btn.disabled = false;
   };
@@ -420,15 +460,20 @@ async function viewBook(id) {
 // ---------- forum ----------
 const threadItem = th => `<a class="item" href="#/forum/${th.id}"><h3>${esc(th.title)}</h3><p>${excerpt(th.body, 120)}</p>${meta(th.name, th.createdAt, " " + catTag(th.category))}</a>`;
 async function listForum() {
-  const items = await latest("threads", 300);
+  const items = (await latest("threads", 300)).filter(x => isAdmin() || !isHidden(x));
   listPage({ titleKey: "forum", items, render: threadItem, cats: CATS.threads, action: isBanned() ? null : { href: "#/new/thread", label: "+ " + t("newThread") } });
 }
 async function viewThread(id) {
   const th = await getOne("threads", id); if (!th) return main().innerHTML = `<div class="empty">${t("notFound")}</div>`;
+  if (isHidden(th) && !isAdmin()) return main().innerHTML = `<div class="empty">${t("hiddenByReports")}</div>`;
   main().innerHTML = `<article class="card article"><div class="crumb"><a href="#/forum">${t("forum")}</a></div>
     <h1>${esc(th.title)}</h1><div class="author-row">${avatar(th.name, th.photo)}${meta(th.name, th.createdAt, " " + catTag(th.category))}</div>
-    <div class="prose">${nl(th.body)}</div><div class="actions">${delBtn("threads", th)}</div></article><section class="card" id="cm"></section>`;
+    <div class="prose">${nl(th.body)}</div><div class="actions">${delBtn("threads", th)}
+      ${isHidden(th) ? `<span class="tag bad">${t("hiddenByReports")}</span><button class="btn ghost sm" id="restTh">${t("restore")}</button>` : ""}
+      ${user && th.uid !== user.uid && !(th.reporters || []).includes(user.uid) && !isBanned() ? `<button class="btn ghost sm" id="repTh">${t("report")}</button>` : ""}</div></article><section class="card" id="cm"></section>`;
   bindDel("threads", id, "#/forum");
+  const rb = $("#repTh"); if (rb) rb.onclick = async () => { if (confirm(t("confirmReport")) && await report(`threads/${id}`, th, `#/forum/${id}`)) rb.remove(); };
+  const rs = $("#restTh"); if (rs) rs.onclick = async () => { try { await updateDoc(doc(db, "threads", id), { reporters: [] }); viewThread(id); } catch (e) { toast(errMsg(e), true); } };
   await comments($("#cm"), "threads", id, "replies");
 }
 
@@ -477,13 +522,14 @@ function pageAsk() {
   $("#askForm").onsubmit = async e => {
     e.preventDefault();
     const f = Object.fromEntries(new FormData(e.target));
+    const bad = checkContent(f.title, f.body); if (bad) return toast(bad, true);
     e.target.querySelector("button").disabled = true;
     try {
       await addDoc(collection(db, "questions"), {
         title: f.title.trim(), body: f.body.trim(), category: f.category, uid: user.uid, name: myName(),
         showName: !f.hide, status: "pending", createdAt: serverTimestamp()
       });
-      toast(t("askSent")); location.hash = "#/profile";
+      markPosted(); toast(t("askSent")); location.hash = "#/profile";
     } catch (err) { toast(errMsg(err), true); e.target.querySelector("button").disabled = false; }
   };
 }
@@ -519,6 +565,7 @@ async function pageNew(type, editId) {
     e.preventDefault();
     const data = {};
     F.fields.forEach(f => data[f.k] = String(new FormData(e.target).get(f.k) || "").trim());
+    const bad = checkContent(...F.fields.filter(f => f.type !== "url" && f.type !== "select").map(f => data[f.k])); if (bad) return toast(bad, true);
     e.target.querySelector("button").disabled = true;
     try {
       if (item) {
@@ -526,7 +573,7 @@ async function pageNew(type, editId) {
         toast(t("saved")); location.hash = `#/${ROUTE_OF[F.coll]}/${editId}`;
       } else {
         Object.assign(data, { uid: user.uid, name: myName(), photo: user.photoURL || "", createdAt: serverTimestamp() });
-        const r = await addDoc(collection(db, F.coll), data); location.hash = `#/${ROUTE_OF[F.coll]}/${r.id}`;
+        const r = await addDoc(collection(db, F.coll), data); markPosted(); location.hash = `#/${ROUTE_OF[F.coll]}/${r.id}`;
       }
     } catch (err) { toast(errMsg(err), true); e.target.querySelector("button").disabled = false; }
   };
@@ -575,6 +622,7 @@ async function pageProfile() {
   $("#outBtn").onclick = async () => { await signOut(auth); location.hash = "#/"; };
   $("#nameForm").onsubmit = async e => {
     e.preventDefault(); const name = e.target.name.value.trim();
+    if (findBad(name, MOD_WORDS)) return toast(t("badWords"), true);
     try {
       await updateDoc(doc(db, "users", user.uid), { name }); await updateProfile(user, { displayName: name });
       profile = { ...profile, name }; renderShell(); toast(t("saved")); pageProfile();
@@ -621,14 +669,44 @@ async function loadInbox() {
     try { await deleteDoc(doc(db, "messages", b.dataset.mdel)); loadInbox(); } catch (e) { toast(errMsg(e), true); }
   });
 }
+async function loadFlags() {
+  const box = $("#flags"); if (!box) return;
+  const fl = await latest("flags", 100);
+  box.innerHTML = fl.length ? fl.map(f => `<div class="item msg"><div class="cmeta"><b>${esc(f.name)}</b><span>${fmtDate(f.createdAt)}</span>
+    <a href="${esc(f.route || "#/")}">${t("view")}</a>
+    <button class="link" data-fok="${f.id}">${t("restore")}</button>
+    <button class="link danger" data-fdel="${f.id}">${t("deleteContent")}</button></div>
+    ${f.title ? `<b>${esc(f.title)}</b>` : ""}<div class="ctext">${nl(f.text)}</div></div>`).join("") : `<div class="empty sm">${t("noFlags")}</div>`;
+  const get = id => fl.find(x => x.id === id);
+  $$("[data-fok]", box).forEach(b => b.onclick = async () => {
+    const f = get(b.dataset.fok);
+    try { await updateDoc(doc(db, f.path), { reporters: [] }).catch(() => {}); await deleteDoc(doc(db, "flags", f.id)); loadFlags(); } catch (e) { toast(errMsg(e), true); }
+  });
+  $$("[data-fdel]", box).forEach(b => b.onclick = async () => {
+    if (!confirm(t("confirmDelete"))) return;
+    const f = get(b.dataset.fdel);
+    try { await deleteDoc(doc(db, f.path)); await deleteDoc(doc(db, "flags", f.id)); loadFlags(); } catch (e) { toast(errMsg(e), true); }
+  });
+}
 async function pageAdmin() {
   if (!requireLogin()) return; if (!isAdmin()) return denied();
   const users = await latest("users", 500);
   main().innerHTML = `<div class="page-head"><h1>${t("admin")} — ${t("users")} (${users.length})</h1></div>
     <div class="toolbar"><input class="search" type="search" placeholder="${t("searchUsers")}"></div>
     <div class="card"><table class="tbl"><tbody id="urows"></tbody></table></div>
-    <h2 class="sub">${t("inbox")}</h2><div id="inbox" class="list"></div>`;
-  loadInbox();
+    <h2 class="sub">${t("flagged")}</h2><div id="flags" class="list"></div>
+    <h2 class="sub">${t("inbox")}</h2><div id="inbox" class="list"></div>
+    <h2 class="sub">${t("moderation")}</h2>
+    <div class="card"><p class="muted">${t("bannedWordsHelp")}</p>
+      <textarea id="modWords" rows="10" dir="auto">${esc(MOD_WORDS.join("\n"))}</textarea>
+      <div class="row-btns" style="margin-top:10px"><button class="btn" id="saveWords">${t("save")}</button>
+      <small class="muted">${t("autoRules").replace("{n}", HIDE_AFTER_REPORTS).replace("{s}", COOLDOWN_SEC)}</small></div></div>`;
+  loadInbox(); loadFlags();
+  $("#saveWords").onclick = async () => {
+    const words = [...new Set($("#modWords").value.split(/\n+/).map(w => w.trim()).filter(Boolean))];
+    try { await setDoc(doc(db, "settings", "moderation"), { words, pattern: buildPattern(words), updatedAt: serverTimestamp() }); MOD_WORDS = words; toast(t("saved")); }
+    catch (e) { toast(errMsg(e), true); }
+  };
   const draw = q => {
     const effRole = u => ADMIN_EMAILS.map(e => e.toLowerCase()).includes((u.email || "").toLowerCase()) ? "admin" : (u.role || "user");
     $("#urows").innerHTML = users.filter(u => !q || (u.name + " " + u.email).toLowerCase().includes(q)).map(u => {

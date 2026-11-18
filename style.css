@@ -217,3 +217,7 @@ footer small{display:block}
 .brand,.btn,#nav a{white-space:nowrap}
 .contact-mail{background:var(--gold-l);border-radius:10px;padding:10px 14px}
 .contact-mail a{font-weight:700}
+.tag.bad{background:#f6d9d4;color:var(--red)}
+.hidden-c{opacity:.55}
+.link.muted{color:var(--muted)}
+#modWords{font-family:inherit}
