@@ -295,3 +295,6 @@ small.green{color:var(--teal);font-weight:500}
 .cf-box:empty{min-height:0}
 .qa-new summary{cursor:pointer;padding:4px 0}
 .qa-new[open] summary{margin-bottom:12px}
+
+.list-count{margin:-4px 2px 12px;color:var(--muted);font-size:.95rem}.list-count b{color:var(--gold);font-size:1.05rem}
+.qmark.qnum{font:700 1rem/1 system-ui,sans-serif;font-variant-numeric:tabular-nums}

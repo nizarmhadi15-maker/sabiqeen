@@ -159,7 +159,7 @@ async function publishedBooks(n = 300) {
   return s.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => ms(b.createdAt) - ms(a.createdAt)).slice(0, n);
 }
 async function answeredFatwas(n = 300) {
-  const s = await getDocs(query(collection(db, "questions"), where("status", "==", "answered"), limit(500)));
+  const s = await getDocs(query(collection(db, "questions"), where("status", "==", "answered"), limit(Math.max(n, 500))));
   return s.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => ms(b.answeredAt) - ms(a.answeredAt)).slice(0, n);
 }
 async function getOne(coll, id) {
@@ -436,18 +436,20 @@ async function comments(el, coll, id, kind = "comments") {
 }
 
 // ---------- generic list page ----------
-function listPage({ titleKey, action, cats, items, render, wrap = "list" }) {
+function listPage({ titleKey, action, cats, items, render, wrap = "list", countKey }) {
   main().innerHTML = `
     <div class="page-head"><h1>${t(titleKey)}</h1>${action ? `<a class="btn" href="${action.href}">${action.label}</a>` : ""}</div>
     <div class="toolbar"><input class="search" type="search" placeholder="${t("search")}">
       ${cats ? `<div class="chips">${["all", ...cats].map(c => `<button class="chip${c === "all" ? " on" : ""}" data-c="${c}">${t(c === "all" ? "all" : "cat_" + c)}</button>`).join("")}</div>` : ""}
     </div>
+    ${countKey ? `<div class="list-count" id="lcount"></div>` : ""}
     <div class="${wrap}" id="items"></div>`;
   let cat = "all", q = "";
   const draw = () => {
     const f = items.filter(i => (cat === "all" || i.category === cat) &&
       (!q || [i.title, i.body, i.author, i.speaker, i.desc, i.answer, i.name].join(" ").toLowerCase().includes(q)));
     $("#items").innerHTML = f.length ? f.map(render).join("") : `<div class="empty">${t("empty")}</div>`;
+    if (countKey) $("#lcount").innerHTML = f.length === items.length ? `${t(countKey)}: <b>${items.length}</b>` : `${t(countKey)}: <b>${f.length}</b> ${t("ofTotal")} ${items.length}`;
   };
   $(".search").oninput = e => { q = e.target.value.trim().toLowerCase(); draw(); };
   $$(".chip").forEach(c => c.onclick = () => { $$(".chip").forEach(x => x.classList.remove("on")); c.classList.add("on"); cat = c.dataset.c; draw(); });
@@ -801,11 +803,12 @@ async function viewThread(id) {
 // ---------- fatwa ----------
 const linkify = x => nl(x).replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener nofollow" dir="ltr">$1</a>');
 const qName = q => q.showName === false ? t("anonymous") : q.name;
-const fatwaItem = q => `<a class="item fatwa-item" href="/fatwa/${q.id}"><span class="qmark">؟</span><div><h3>${esc(q.title || excerpt(q.body, 80))}</h3>
+const fatwaItem = q => `<a class="item fatwa-item" href="/fatwa/${q.id}"><span class="qmark${q.num ? " qnum" : ""}">${q.num || "؟"}</span><div><h3>${esc(q.title || excerpt(q.body, 80))}</h3>
   <p>${excerpt(q.answer, 140)}</p>${meta(q.sheikhName ? t("answeredBy") + " " + q.sheikhName : "", q.answeredAt, " " + catTag(q.category))}</div></a>`;
 async function listFatwa() {
-  const items = await answeredFatwas();
-  listPage({ titleKey: "fatwa", items, render: fatwaItem, cats: CATS.questions, action: { href: "/ask", label: t("ask") } });
+  const items = await answeredFatwas(5000);
+  items.forEach((q, i) => q.num = items.length - i);
+  listPage({ titleKey: "fatwa", countKey: "fatwaCount", items, render: fatwaItem, cats: CATS.questions, action: { href: "/ask", label: t("ask") } });
 }
 async function viewFatwa(id) {
   const q = await getOne("questions", id); if (!q) return main().innerHTML = `<div class="empty">${t("notFound")}</div>`;
