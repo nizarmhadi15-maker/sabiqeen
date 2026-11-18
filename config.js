@@ -33,4 +33,4 @@ export const UPLOAD = {
 };
 
 // 5) التحقق من أن الزائر إنسان (Cloudflare Turnstile — مجاني). ضع Site Key هنا، واتركه فارغاً لإيقافه.
-export const CAPTCHA = { siteKey: "" };
+export const CAPTCHA = { siteKey: "0x4AAAAAAGHTBu_-hEA-WLGz" };
