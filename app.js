@@ -676,7 +676,6 @@ async function pageBookForm(editId) {
         <label>${t("mainCat")}<select name="category" required><option value="">${t("chooseMain")}</option>${CATS.books.map(c => opt(c, t("cat_" + c), b?.category)).join("")}</select></label>
         <label>${t("subCat")}<select name="subcat" required>${subOpts(b?.category)}</select></label>
       </div>
-      <small class="red">${t("coverNote")}</small>
       <div class="upbox"><b>⬆ ${t("coverUpload")}</b>${safeUrl(b?.cover) ? `<img class="cvprev" src="${safeUrl(b.cover)}" alt="">` : ""}<input type="file" id="cvFile" accept="image/*"><div class="upbar"><i id="cvBar"></i></div><small id="cvMsg" class="muted"></small></div>
       <label class="check"><input type="checkbox" name="readOnly"${b?.readOnly ? " checked" : ""}> <span>${t("readOnlyQ")} <small class="red">${t("readOnlyNote")}</small></span></label>
       <div class="upbox"><b>⬆ ${t("bookFile")}</b>${b?.url ? `<small class="muted">${t("currentFile")}</small>` : ""}<input type="file" id="bkFile" accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document">
@@ -688,7 +687,7 @@ async function pageBookForm(editId) {
       <div class="grid2 extra"${Object.values(x).some(Boolean) ? "" : " hidden"}>
         <label>${t("pages")}<input name="pages" type="number" min="1" max="100000" value="${esc(x.pages || "")}"></label>
         <label>${t("house")}<input name="house" maxlength="120" value="${esc(x.house || "")}"></label>
-        <label>${t("year")}<input name="year" maxlength="20" placeholder="1445 هـ / 2024 م" value="${esc(x.year || "")}"></label>
+        <label>${t("year")}<input name="year" maxlength="20" value="${esc(x.year || "")}"></label>
         <label>${t("edition")}<input name="edition" maxlength="40" value="${esc(x.edition || "")}"></label>
       </div>
       <label class="check"><input type="checkbox" name="agree" required${b ? " checked" : ""}> <span>${t("agreeTerms")} <a href="/terms" target="_blank">${t("terms")}</a> · <a href="/privacy" target="_blank">${t("privacy")}</a></span></label>
