@@ -1,5 +1,5 @@
-import { firebaseConfig, SITE, ADMIN_EMAILS, UPLOAD, CAPTCHA } from "./config.js?v=20261118j";
-import { I18N } from "./i18n.js?v=20261118j";
+import { firebaseConfig, SITE, ADMIN_EMAILS, UPLOAD, CAPTCHA } from "./config.js?v=20261118k";
+import { I18N } from "./i18n.js?v=20261118k";
 import { PAGES } from "./pages.js";
 import { DEFAULT_WORDS, findBad, hasLink, buildPattern, HIDE_AFTER_REPORTS, COOLDOWN_SEC, isDisposable, nameKey } from "./moderation.js";
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
@@ -494,6 +494,7 @@ async function pageHome() {
         <p>${t("heroSub")}</p>
         <div class="hero-btns"><a class="btn gold" href="/ask">${t("ask")}</a><a class="btn ghost light" href="/fatwa">${t("browseFatwas")}</a></div>
       </div>
+      <a class="hero-donate" href="/donate"><span class="hd-ico">❤</span><b>${t("heroDonateT")}</b><p>${t("heroDonateP")}</p><span class="btn gold">${t("heroDonateBtn")}</span></a>
     </section>
     <div class="secs">${secs.map(([k, h, d]) => `<a class="sec" href="${h}">${icon(k)}<b>${t(k)}</b><small>${t(d)}</small></a>`).join("")}</div>
     <div class="home-grid">

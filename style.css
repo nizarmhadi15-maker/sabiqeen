@@ -62,6 +62,7 @@ h2.sub{margin:26px 0 12px}
   background-image:repeating-conic-gradient(from 45deg,#fff 0 25%,transparent 0 50%);background-size:46px 46px;
   -webkit-mask-image:linear-gradient(to left,#000,transparent 70%);mask-image:linear-gradient(to left,#000,transparent 70%)}
 [dir=ltr] .hero::before{-webkit-mask-image:linear-gradient(to right,#000,transparent 70%);mask-image:linear-gradient(to right,#000,transparent 70%)}
+.hero{display:flex;align-items:center;justify-content:space-between;gap:24px}
 .hero-in{position:relative;padding:60px 44px}
 .hero h1{font-size:2.7rem;margin-bottom:.2em}
 .hero p{font-size:1.15rem;opacity:.9;margin:0 0 22px}
@@ -305,3 +306,12 @@ small.green{color:var(--teal);font-weight:500}
 .nav-dd .dd a{display:block;padding:8px 12px;border-radius:8px;white-space:nowrap}
 .nav-dd:hover .dd,.nav-dd:focus-within .dd,.nav-dd.open .dd{display:flex}
 @media (max-width:1180px){.nav-dd{flex-wrap:wrap}.nav-dd>a{flex:1}.nav-dd .dd{position:static;box-shadow:none;border:0;border-inline-start:2px solid var(--gold-l);border-radius:0;margin-inline-start:12px;width:100%;min-width:0}.nav-dd:hover .dd,.nav-dd:focus-within .dd{display:none}.nav-dd.open .dd{display:flex}.nav-dd .dd-tog{font-size:1.1rem;padding:6px 12px}}
+
+.hero-donate{position:relative;margin-inline-end:44px;max-width:330px;flex-shrink:0;display:flex;flex-direction:column;align-items:center;text-align:center;gap:8px;
+  padding:24px 22px;border-radius:18px;color:#fff;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.18);backdrop-filter:blur(4px);transition:transform .2s,background .2s}
+.hero-donate:hover{transform:translateY(-3px);background:rgba(255,255,255,.13);color:#fff}
+.hero-donate .hd-ico{width:48px;height:48px;border-radius:50%;display:grid;place-items:center;background:rgba(196,154,60,.25);color:#f3d48a;font-size:1.5rem;animation:hdBeat 2.4s ease-in-out infinite}
+.hero-donate b{font-size:1.25rem;color:#f3e6c4}
+.hero-donate p{font-size:.95rem!important;margin:0 0 6px!important;opacity:.9;line-height:1.7}
+@keyframes hdBeat{0%,100%{transform:scale(1)}12%{transform:scale(1.12)}24%{transform:scale(1)}}
+@media (max-width:900px){.hero{flex-direction:column;align-items:stretch;gap:0}.hero-donate{margin:0 22px 26px;max-width:none}}
