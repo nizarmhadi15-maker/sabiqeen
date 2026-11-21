@@ -49,7 +49,7 @@ const thumb = u => ytId(u) ? `https://i.ytimg.com/vi/${ytId(u)}/hqdefault.jpg`
 const hidden = x => (x.reporters || []).length >= 3;
 const tpl = fs.readFileSync(path.join(ROOT, "index.html"), "utf8");
 
-function page({ url, title, desc, body, ld, type = "article" }) {
+function page({ url, title, desc, body, ld, type = "article", head = "" }) {
   const full = title ? `${title} | ${NAME}` : NAME, canon = ORIGIN + url;
   let h = tpl
     .replace(/<title>[^<]*<\/title>/, `<title>${esc(full)}</title>`)
@@ -60,6 +60,7 @@ function page({ url, title, desc, body, ld, type = "article" }) {
     .replace(/(<meta property="og:url" content=")[^"]*/, `$1${canon}`)
     .replace(/(<meta property="og:type" content=")[^"]*/, `$1${url === "/" ? "website" : type}`)
     .replace(/<main id="app">[\s\S]*?<\/main>/, `<main id="app">${body}</main>`);
+  if (head) h = h.replace("</head>", head + "\n</head>");
   if (ld) h = h.replace("</head>", `  <script type="application/ld+json">${JSON.stringify(ld).replace(/</g, "\\u003c")}</script>\n</head>`);
   const file = path.join(OUT, url, "index.html");
   fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, h);
@@ -136,11 +137,38 @@ for (const [k, title] of [["contact", T.contactUs], ["donate", T.donate], ["ask"
 
 // الصفحة الرئيسية: روابط لأحدث المحتوى
 const latest = (arr, route, n = 8) => arr.slice(0, n).map(x => `<li><a href="/${route}/${x.id}">${esc(x.title || plain(x.body, 80))}</a></li>`).join("");
-page({ url: "/", title: "", desc: tpl.match(/<meta name="description" content="([^"]*)/)[1], type: "website",
+const HREFLANG = `  <link rel="alternate" hreflang="ar" href="${ORIGIN}/">\n  <link rel="alternate" hreflang="en" href="${ORIGIN}/en/">\n  <link rel="alternate" hreflang="x-default" href="${ORIGIN}/">`;
+page({ url: "/", title: "", desc: tpl.match(/<meta name="description" content="([^"]*)/)[1], type: "website", head: HREFLANG,
   body: `<section class="card"><h1>${esc(NAME)}</h1><p>${esc(SITE.tagline.ar)}</p>
     <h2>${T.fatwa}</h2><ul>${latest(fatwas, "fatwa")}</ul><h2>${T.posts}</h2><ul>${latest(posts, "posts")}</ul>
     <h2>${T.audio}</h2><ul>${latest(audios, "audio")}</ul><h2>${T.videos}</h2><ul>${latest(videos, "videos")}</ul>
     <h2>${T.books}</h2><ul>${latest(books, "books")}</ul><h2>${T.forum}</h2><ul>${latest(threads.filter(x => !hidden(x)), "forum")}</ul></section>` });
+
+
+// النسخة الإنجليزية من الرئيسية (لمن يبحث بالإنجليزية)
+{
+  const EN = "Al-Sabiqeen Library", enTitle = `${EN} — Islamic Fatwas, Books, Lectures & Audio`;
+  const enDesc = "Al-Sabiqeen Library (مكتبة السابقين): a free Islamic platform — fatwas answered by scholars, Islamic books, audio lectures, videos, articles and a discussion forum. Ask a sheikh your question.";
+  const en = latest => `<section class="card"><h1>${EN}</h1><p>${esc(SITE.tagline.en || "")}</p>
+    <h2>Fatwas</h2><ul>${latest(fatwas, "fatwa")}</ul><h2>Audio</h2><ul>${latest(audios, "audio")}</ul>
+    <h2>Books</h2><ul>${latest(books, "books")}</ul><h2>Videos</h2><ul>${latest(videos, "videos")}</ul></section>`;
+  let h = tpl
+    .replace('<html lang="ar" dir="rtl">', '<html lang="en" dir="ltr">')
+    .replace(/<title>[^<]*<\/title>/, `<title>${esc(enTitle)}</title>`)
+    .replace(/(<meta name="description" content=")[^"]*/, `$1${esc(enDesc)}`)
+    .replace(/(<link rel="canonical" href=")[^"]*/, `$1${ORIGIN}/en/`)
+    .replace(/(<meta property="og:site_name" content=")[^"]*/, `$1${EN}`)
+    .replace(/(<meta property="og:title" content=")[^"]*/, `$1${esc(enTitle)}`)
+    .replace(/(<meta property="og:description" content=")[^"]*/, `$1${esc(enDesc)}`)
+    .replace(/(<meta property="og:url" content=")[^"]*/, `$1${ORIGIN}/en/`)
+    .replace(/(<meta property="og:locale" content=")[^"]*/, `$1en_US`)
+    .replace(/<span id="brandName">[^<]*<\/span>/, `<span id="brandName">${EN}</span>`)
+    .replace(/<script type="application\/ld\+json">[\s\S]*?<\/script>/, `<script type="application/ld+json">${JSON.stringify({ "@context": "https://schema.org", "@type": "WebPage", name: enTitle, url: ORIGIN + "/en/", inLanguage: "en", isPartOf: { "@type": "WebSite", name: "مكتبة السابقين", alternateName: EN, url: ORIGIN + "/" } })}</script>`)
+    .replace(/<main id="app">[\s\S]*?<\/main>/, `<main id="app">${en(latest)}</main>`)
+    .replace("</head>", HREFLANG + "\n</head>");
+  fs.mkdirSync(path.join(OUT, "en"), { recursive: true }); fs.writeFileSync(path.join(OUT, "en", "index.html"), h);
+  add("/en/", null, "0.9", "daily");
+}
 
 // خريطة الموقع
 fs.writeFileSync(path.join(OUT, "sitemap.xml"), `<?xml version="1.0" encoding="UTF-8"?>
