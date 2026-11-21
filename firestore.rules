@@ -79,7 +79,12 @@ service cloud.firestore {
 
     // المقالات والصوتيات والفيديوهات والكتب: القراءة للجميع، الإضافة للمشايخ والمدير
     match /posts/{id}  { allow read: if true; allow create, update, delete: if isSheikh(); }
-    match /audios/{id} { allow read: if true; allow create, update, delete: if isSheikh(); }
+    // عدّاد زيادة بواحد فقط (الاستماع / المشاهدات) لأي زائر
+    function bumpOnly(f) {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly([f])
+        && request.resource.data[f] == resource.data.get(f, 0) + 1;
+    }
+    match /audios/{id} { allow read: if true; allow create, delete: if isSheikh(); allow update: if isSheikh() || bumpOnly('plays'); }
     match /videos/{id} { allow read: if true; allow create, update, delete: if isSheikh(); }
     // الكتب: أي عضو ينشر كتاباً بعد إكمال بيانات الناشر، ويبقى «بانتظار المراجعة» حتى يعتمده شيخ أو المدير
     function bookOk() {
@@ -128,7 +133,7 @@ service cloud.firestore {
       allow create: if ownsNew() && request.resource.data.status == 'pending'
         && !('answer' in request.resource.data) && txt('body', 5000)
         && clean('body') && clean('title') && noLinks('body');
-      allow update: if isSheikh();
+      allow update: if isSheikh() || (resource.data.status == 'answered' && bumpOnly('views'));
       allow delete: if isAdmin()
         || (signedIn() && resource.data.uid == request.auth.uid && resource.data.status == 'pending');
     }

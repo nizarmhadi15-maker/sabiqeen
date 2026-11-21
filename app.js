@@ -1,5 +1,5 @@
-import { firebaseConfig, SITE, ADMIN_EMAILS, UPLOAD, CAPTCHA } from "./config.js?v=20261121b";
-import { I18N } from "./i18n.js?v=20261121b";
+import { firebaseConfig, SITE, ADMIN_EMAILS, UPLOAD, CAPTCHA } from "./config.js?v=20261121c";
+import { I18N } from "./i18n.js?v=20261121c";
 import { PAGES } from "./pages.js";
 import { DEFAULT_WORDS, findBad, hasLink, buildPattern, HIDE_AFTER_REPORTS, COOLDOWN_SEC, isDisposable, nameKey } from "./moderation.js";
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
@@ -210,7 +210,7 @@ async function route() {
       switch (p) {
         case undefined: case "home": return pageHome();
         case "posts": return id ? viewPost(id) : listPosts();
-        case "audio": return id ? viewAudio(id) : listAudio();
+        case "audio": return id === "scholars" ? pageScholars() : id === "scholar" ? pageScholar(extra || "") : id ? viewAudio(id) : listAudio();
         case "videos": return id ? viewVideo(id) : listVideos();
         case "books": return id ? viewBook(id) : listBooks();
         case "forum": return id ? viewThread(id) : listForum();
@@ -441,14 +441,14 @@ async function comments(el, coll, id, kind = "comments") {
 }
 
 // ---------- generic list page ----------
-function listPage({ titleKey, action, cats, items, render, wrap = "list", countKey, startCat = "all" }) {
-  main().innerHTML = `
+function listPage({ titleKey, action, cats, items, render, wrap = "list", countKey, startCat = "all", side = "", top = "", tabs = "", chipsHidden = false, after }) {
+  const chipHtml = cats && !chipsHidden ? `<div class="chips${tabs ? " tabs" : ""}">${["all", ...cats].map(c => `<button class="chip${c === startCat ? " on" : ""}" data-c="${c}">${t(c === "all" ? (tabs ? "allOf_" + titleKey : "all") : "cat_" + c)}</button>`).join("")}${tabs}</div>` : "";
+  main().innerHTML = withSide(`
     <div class="page-head"><h1>${t(titleKey)}</h1>${action ? `<a class="btn" href="${action.href}">${action.label}</a>` : ""}</div>
-    <div class="toolbar"><input class="search" type="search" placeholder="${t("search")}">
-      ${cats ? `<div class="chips">${["all", ...cats].map(c => `<button class="chip${c === startCat ? " on" : ""}" data-c="${c}">${t(c === "all" ? "all" : "cat_" + c)}</button>`).join("")}</div>` : ""}
-    </div>
+    ${top}
+    <div class="toolbar">${tabs ? chipHtml : ""}<input class="search" type="search" placeholder="${t("search")}">${tabs ? "" : chipHtml}</div>
     ${countKey ? `<div class="list-count" id="lcount"></div>` : ""}
-    <div class="${wrap}" id="items"></div>`;
+    <div class="${wrap}" id="items"></div>`, side);
   let cat = startCat, q = "";
   const draw = () => {
     const f = items.filter(i => (cat === "all" || i.category === cat) &&
@@ -457,9 +457,47 @@ function listPage({ titleKey, action, cats, items, render, wrap = "list", countK
     if (countKey) $("#lcount").innerHTML = f.length === items.length ? `${t(countKey)}: <b>${items.length}</b>` : `${t(countKey)}: <b>${f.length}</b> ${t("ofTotal")} ${items.length}`;
   };
   $(".search").oninput = e => { q = e.target.value.trim().toLowerCase(); draw(); };
-  $$(".chip").forEach(c => c.onclick = () => { $$(".chip").forEach(x => x.classList.remove("on")); c.classList.add("on"); cat = c.dataset.c; draw(); });
-  draw();
+  $$(".chip[data-c]").forEach(c => c.onclick = () => { $$(".chip[data-c]").forEach(x => x.classList.remove("on")); c.classList.add("on"); cat = c.dataset.c; draw(); });
+  draw(); startTickers(); if (after) after();
+  return {
+    setCat: c => { cat = c; $$(".chip[data-c]").forEach(x => x.classList.toggle("on", x.dataset.c === c)); $$("[data-side-cat]").forEach(x => x.classList.toggle("on", x.dataset.sideCat === c)); draw(); $("#items").scrollIntoView({ behavior: "smooth", block: "start" }); },
+    setQ: v => { q = v.trim().toLowerCase(); const si = $(".search"); if (si) si.value = v; draw(); $("#items").scrollIntoView({ behavior: "smooth", block: "start" }); }
+  };
 }
+
+// ---------- side boxes (like islamweb) ----------
+const fmtN = n => Number(n || 0).toLocaleString("en-US");
+const withSide = (mainHtml, side) => side ? `<div class="with-side"><div class="ws-main">${mainHtml}</div><aside class="ws-side">${side}</aside></div>` : mainHtml;
+const SEC_OF = { posts: ["posts", "/posts/"], audios: ["audio", "/audio/"], videos: ["videos", "/videos/"], books: ["books", "/books/"], threads: ["forum", "/forum/"], questions: ["fatwa", "/fatwa/"] };
+const plainText = (s, n) => { s = String(s || "").replace(/\s+/g, " ").trim(); return s.length > n ? s.slice(0, n) + "…" : s; };
+const tkRow = (coll, x) => { const [k, base] = SEC_OF[coll]; return { t: x.title || plainText(x.body, 70), href: base + x.id, k }; };
+function tickerBox(title, rows, more, note = "", ik = "posts") {
+  if (!rows.length) return "";
+  const li = rows.map(r => `<li><a href="${r.href}">${icon(r.k || ik, "ic xs")}<span>${esc(r.t)}</span></a></li>`).join("");
+  const moving = rows.length > 4;
+  return `<section class="side-box ticker"><h3 class="sb-h">${icon(ik, "ic sb-ic")}${esc(title)}</h3>
+    <div class="tk-view${moving ? " moving" : ""}"><ul class="tk-list" style="--dur:${Math.max(12, rows.length * 3)}s">${li}${moving ? li.replace(/<li>/g, '<li aria-hidden="true">') : ""}</ul></div>
+    ${more ? `<div class="sb-more">${note ? `<small>${esc(note)}</small>` : ""}<a class="btn navy" href="${more}">${t("more")}</a></div>` : ""}</section>`;
+}
+function startTickers() {
+  $$(".tk-view.moving").forEach(v => { const l = v.querySelector(".tk-list"); if (l.scrollHeight / 2 <= v.clientHeight) { v.classList.remove("moving"); l.querySelectorAll('[aria-hidden="true"]').forEach(x => x.remove()); } });
+}
+const secTicker = (coll, items, titleKey = "latestTopics") => tickerBox(t(titleKey), items.slice(0, 15).map(x => tkRow(coll, x)), "/" + SEC_OF[coll][0], t("moreNote_" + SEC_OF[coll][0]), SEC_OF[coll][0]);
+async function topPlayed(n = 8) {
+  try { const s = await getDocs(query(collection(db, "audios"), orderBy("plays", "desc"), limit(n))); return s.docs.map(d => ({ id: d.id, ...d.data() })); } catch { return []; }
+}
+const playedBox = list => list.length ? `<section class="side-box"><h3 class="sb-h">${icon("audio", "ic sb-ic")}${t("mostPlayed")}</h3>
+  <div class="mp-list">${list.map(a => `<a class="mp" href="/audio/${a.id}"><span><b>${esc(a.title)}</b><small>${esc(cleanSpeaker(a.speaker))}</small></span><i>${fmtN(a.plays)}</i></a>`).join("")}</div></section>` : "";
+// اسم الشيخ بدون الألقاب (للعرض والترتيب الأبجدي)
+const cleanSpeaker = s => String(s || "").replace(/^(فضيلة\s+|سماحة\s+)?(الشيخ|العلامة|الإمام|الدكتور|د\.)\s+/, "").replace(/\s+(رحمه الله|حفظه الله|رحمه الله تعالى|حفظه الله تعالى)$/, "").trim();
+const normAr = s => String(s || "").replace(/[أإآ]/g, "ا");
+// عدّاد مرّة واحدة لكل جلسة
+function bumpOnce(coll, id, field) {
+  if (isAdmin()) return; const k = `b_${coll}_${id}`;
+  try { if (sessionStorage.getItem(k)) return; sessionStorage.setItem(k, 1); } catch {}
+  updateDoc(doc(db, coll, id), { [field]: increment(1) }).catch(() => {});
+}
+document.addEventListener("play", e => { const a = e.target; if (a.tagName === "AUDIO" && a.dataset.id) bumpOnce("audios", a.dataset.id, "plays"); }, true);
 const catTag = c => c ? `<span class="tag">${t("cat_" + c)}</span>` : "";
 const meta = (name, ts, extra = "") => `<div class="meta">${esc(name || "")}${name ? " · " : ""}${fmtDate(ts)}${extra}</div>`;
 
@@ -480,7 +518,10 @@ function bindDel(coll, id, back) {
 // ---------- home ----------
 async function pageHome() {
   const [posts, audios, books, fats, threads, videos] = await Promise.all([
-    latest("posts", 3), latest("audios", 4), publishedBooks(6), answeredFatwas(4), latest("threads", 4), latest("videos", 4)]);
+    latest("posts", 5), latest("audios", 6), publishedBooks(6), answeredFatwas(6), latest("threads", 5), latest("videos", 5)]);
+  const top = await topPlayed(6);
+  const mix = [];
+  for (let i = 0; i < 6; i++) [["questions", fats], ["audios", audios], ["posts", posts], ["books", books], ["threads", threads], ["videos", videos]].forEach(([c, a]) => a[i] && mix.push(tkRow(c, a[i])));
   const secs = [["posts", "/posts", "secPosts"], ["audio", "/audio", "secAudio"], ["videos", "/videos", "secVideos"], ["books", "/books", "secBooks"], ["forum", "/forum", "secForum"], ["fatwa", "/fatwa", "secFatwa"]];
   const block = (key, href, html) => `<section class="block"><div class="block-head"><h2>${t(key)}</h2><a href="${href}">${t("viewAll")} ←</a></div>${html}</section>`;
   main().innerHTML = `
@@ -494,25 +535,27 @@ async function pageHome() {
       <a class="hero-donate" href="/donate"><span class="hd-ico">❤</span><b>${t("heroDonateT")}</b><p>${t("heroDonateP")}</p><span class="btn gold">${t("heroDonateBtn")}</span></a>
     </section>
     <div class="secs">${secs.map(([k, h, d]) => `<a class="sec" href="${h}">${icon(k)}<b>${t(k)}</b><small>${t(d)}</small></a>`).join("")}</div>
-    <div class="home-grid">
+    ${withSide(`<div class="home-grid">
       <div>
-        ${block("latestFatwas", "/fatwa", fats.length ? `<div class="list">${fats.map(fatwaItem).join("")}</div>` : `<div class="empty sm">${t("empty")}</div>`)}
-        ${block("latestPosts", "/posts", posts.length ? `<div class="list">${posts.map(postItem).join("")}</div>` : `<div class="empty sm">${t("empty")}</div>`)}
+        ${block("latestFatwas", "/fatwa", fats.length ? `<div class="list">${fats.slice(0, 4).map(fatwaItem).join("")}</div>` : `<div class="empty sm">${t("empty")}</div>`)}
+        ${block("latestPosts", "/posts", posts.length ? `<div class="list">${posts.slice(0, 3).map(postItem).join("")}</div>` : `<div class="empty sm">${t("empty")}</div>`)}
       </div>
       <div>
-        ${block("latestAudio", "/audio", audios.length ? `<div class="list">${audios.map(audioItem).join("")}</div>` : `<div class="empty sm">${t("empty")}</div>`)}
-        ${block("latestThreads", "/forum", threads.length ? `<div class="list">${threads.map(threadItem).join("")}</div>` : `<div class="empty sm">${t("empty")}</div>`)}
+        ${block("latestAudio", "/audio", audios.length ? `<div class="list">${audios.slice(0, 4).map(audioItem).join("")}</div>` : `<div class="empty sm">${t("empty")}</div>`)}
+        ${block("latestThreads", "/forum", threads.length ? `<div class="list">${threads.slice(0, 4).map(threadItem).join("")}</div>` : `<div class="empty sm">${t("empty")}</div>`)}
       </div>
     </div>
-    ${block("latestVideos", "/videos", videos.length ? `<div class="videogrid">${videos.map(videoItem).join("")}</div>` : `<div class="empty sm">${t("empty")}</div>`)}
-    ${block("latestBooks", "/books", books.length ? `<div class="bookgrid">${books.map(bookItem).join("")}</div>` : `<div class="empty sm">${t("empty")}</div>`)}`;
+    ${block("latestVideos", "/videos", videos.length ? `<div class="videogrid">${videos.slice(0, 4).map(videoItem).join("")}</div>` : `<div class="empty sm">${t("empty")}</div>`)}
+    ${block("latestBooks", "/books", books.length ? `<div class="bookgrid">${books.map(bookItem).join("")}</div>` : `<div class="empty sm">${t("empty")}</div>`)}`,
+      tickerBox(t("mixedTopics"), mix, "/fatwa", t("mixedNote"), "posts") + playedBox(top))}`;
+  startTickers();
 }
 
 // ---------- posts ----------
 const postItem = p => `<a class="item" href="/posts/${p.id}"><h3>${esc(p.title)}</h3><p>${excerpt(p.body)}</p>${meta(p.name, p.createdAt)}</a>`;
 async function listPosts() {
   const items = await latest("posts", 200);
-  listPage({ titleKey: "posts", items, render: postItem, action: isSheikh() ? { href: "/new/post", label: "+ " + t("newPost") } : null });
+  listPage({ titleKey: "posts", items, render: postItem, side: secTicker("posts", items), action: isSheikh() ? { href: "/new/post", label: "+ " + t("newPost") } : null });
 }
 async function viewPost(id) {
   const p = await getOne("posts", id); if (!p) return main().innerHTML = `<div class="empty">${t("notFound")}</div>`;
@@ -525,16 +568,59 @@ async function viewPost(id) {
 
 // ---------- audio ----------
 const audioItem = a => `<div class="item audio-item"><div class="ai-head">${icon("audio", "ic sm")}<div><a href="/audio/${a.id}"><h3>${esc(a.title)}</h3></a>
-  <div class="meta">${esc(a.speaker || "")} ${catTag(a.category)}</div></div></div>${safeUrl(a.url) ? `<audio controls preload="none" src="${safeUrl(a.url)}"></audio>` : ""}</div>`;
+  <div class="meta"><a class="spk" href="/audio/scholar/${encodeURIComponent(a.speaker || "")}">${esc(a.speaker || "")}</a> ${catTag(a.category)}${a.plays ? ` <span class="plays">🎧 ${fmtN(a.plays)}</span>` : ""}</div></div></div>${safeUrl(a.url) ? `<audio controls preload="none" data-id="${a.id}" src="${safeUrl(a.url)}"></audio>` : ""}</div>`;
+const audioTabs = on => `<a class="chip${on === "sch" ? " on" : ""}" href="/audio/scholars">👥 ${t("scholars")}</a>`;
 async function listAudio() {
-  const items = await latest("audios", 300);
-  listPage({ titleKey: "audio", items, render: audioItem, cats: CATS.audios, action: isSheikh() ? { href: "/new/audio", label: "+ " + t("newAudio") } : null });
+  const [items, top] = await Promise.all([latest("audios", 1000), topPlayed()]);
+  const c0 = new URLSearchParams(location.search).get("c");
+  listPage({ titleKey: "audio", items, render: audioItem, cats: CATS.audios, countKey: "audioCount", tabs: audioTabs(), startCat: CATS.audios.includes(c0) ? c0 : "all",
+    side: secTicker("audios", items) + playedBox(top), action: isSheikh() ? { href: "/new/audio", label: "+ " + t("newAudio") } : null });
+}
+function scholarsOf(items) {
+  const m = new Map();
+  items.forEach(a => { const k = (a.speaker || "").trim(); if (!k) return; const o = m.get(k) || { name: k, n: 0, plays: 0 }; o.n++; o.plays += a.plays || 0; m.set(k, o); });
+  return [...m.values()].sort((a, b) => cleanSpeaker(a.name).localeCompare(cleanSpeaker(b.name), "ar"));
+}
+const AR_LETTERS = "ا ب ت ث ج ح خ د ذ ر ز س ش ص ض ط ظ ع غ ف ق ك ل م ن ه و ي".split(" ");
+async function pageScholars() {
+  const [items, top] = await Promise.all([latest("audios", 1000), topPlayed()]);
+  const list = scholarsOf(items);
+  main().innerHTML = withSide(`<div class="page-head"><h1>${t("audio")}</h1></div>
+    <div class="toolbar"><div class="chips tabs"><a class="chip" href="/audio">${t("allOf_audio")}</a>${CATS.audios.map(c => `<a class="chip" href="/audio?c=${c}">${t("cat_" + c)}</a>`).join("")}${audioTabs("sch")}</div></div>
+    <section class="card sch-box"><div class="sch-head"><h2>${t("scholars")}</h2><input class="search" id="schQ" type="search" placeholder="${t("searchScholar")}"></div>
+      <div class="letters"><button class="on" data-l="">${t("all")}</button>${AR_LETTERS.map(l => `<button data-l="${l}">${l}</button>`).join("")}</div>
+      <div class="sch-grid" id="schGrid"></div></section>`, secTicker("audios", items) + playedBox(top));
+  let L = "", Q = "";
+  const draw = () => {
+    const f = list.filter(s => { const n = normAr(cleanSpeaker(s.name)); return (!L || n.startsWith(L)) && (!Q || normAr(s.name).includes(normAr(Q))); });
+    $("#schGrid").innerHTML = f.length ? f.map(s => `<a class="sch" href="/audio/scholar/${encodeURIComponent(s.name)}"><b>${esc(cleanSpeaker(s.name))}</b><small>🎧 ${t("materials")}: ${s.n}</small></a>`).join("") : `<div class="empty sm">${t("empty")}</div>`;
+  };
+  $("#schQ").oninput = e => { Q = e.target.value.trim(); draw(); };
+  $$(".letters button").forEach(b => b.onclick = () => { $$(".letters button").forEach(x => x.classList.remove("on")); b.classList.add("on"); L = b.dataset.l; draw(); });
+  draw(); startTickers();
+}
+async function pageScholar(name) {
+  const [all, top] = await Promise.all([latest("audios", 1000), topPlayed()]);
+  const items = all.filter(a => (a.speaker || "").trim() === name);
+  if (!items.length) return main().innerHTML = `<div class="empty">${t("notFound")}</div>`;
+  const plays = items.reduce((s, a) => s + (a.plays || 0), 0);
+  const cats = CATS.audios.filter(c => items.some(a => a.category === c));
+  const share = encodeURIComponent(location.href);
+  main().innerHTML = withSide(`<div class="crumb"><a href="/audio">${t("audio")}</a> » <a href="/audio/scholars">${t("scholars")}</a></div>
+    <section class="card sch-page"><div class="sp-t">${t("scholarPage")}</div><h1>${esc(cleanSpeaker(name))}</h1>
+      <div class="sp-stats"><span>${t("materials")}: <b>${items.length}</b></span><span>🎧 ${t("totalPlays")}: <b>${fmtN(plays)}</b></span>
+        <a class="sh wa" target="_blank" rel="noopener" href="https://wa.me/?text=${share}">WhatsApp</a><a class="sh fb" target="_blank" rel="noopener" href="https://www.facebook.com/sharer/sharer.php?u=${share}">Facebook</a><a class="sh x" target="_blank" rel="noopener" href="https://x.com/intent/post?url=${share}">X</a></div>
+      <div class="folders"><button class="folder on" data-f="all">📁 ${t("allMaterials")} <i>${items.length}</i></button>${cats.map(c => `<button class="folder" data-f="${c}">📁 ${t("cat_" + c)} <i>${items.filter(a => a.category === c).length}</i></button>`).join("")}</div></section>
+    <div class="list" id="items"></div>`, secTicker("audios", items, "scholarLatest") + playedBox(top));
+  const draw = f => $("#items").innerHTML = items.filter(a => f === "all" || a.category === f).map(audioItem).join("");
+  $$(".folder").forEach(b => b.onclick = () => { $$(".folder").forEach(x => x.classList.remove("on")); b.classList.add("on"); draw(b.dataset.f); });
+  draw("all"); startTickers();
 }
 async function viewAudio(id) {
   const a = await getOne("audios", id); if (!a) return main().innerHTML = `<div class="empty">${t("notFound")}</div>`;
   main().innerHTML = `<article class="card article"><div class="crumb"><a href="/audio">${t("audio")}</a></div>
-    <h1>${esc(a.title)}</h1><div class="meta">${esc(a.speaker || "")} · ${fmtDate(a.createdAt)} ${catTag(a.category)}</div>
-    ${safeUrl(a.url) ? `<audio class="big" controls src="${safeUrl(a.url)}"></audio><a class="btn ghost sm" href="${safeUrl(a.url)}" download target="_blank" rel="noopener">${t("download")}</a>` : ""}
+    <h1>${esc(a.title)}</h1><div class="meta"><a class="spk" href="/audio/scholar/${encodeURIComponent(a.speaker || "")}">${esc(a.speaker || "")}</a> · ${fmtDate(a.createdAt)} ${catTag(a.category)}${a.plays ? ` · 🎧 ${fmtN(a.plays)}` : ""}</div>
+    ${safeUrl(a.url) ? `<audio class="big" controls data-id="${a.id}" src="${safeUrl(a.url)}"></audio><a class="btn ghost sm" href="${safeUrl(a.url)}" download target="_blank" rel="noopener">${t("download")}</a>` : ""}
     ${a.desc ? `<div class="prose">${nl(a.desc)}</div>` : ""}<div class="actions">${delBtn("audios", a)}</div></article><section class="card" id="cm"></section>`;
   bindDel("audios", id, "/audio");
   await comments($("#cm"), "audios", id);
@@ -554,7 +640,7 @@ const videoItem = v => {
 };
 async function listVideos() {
   const items = await latest("videos", 300);
-  listPage({ titleKey: "videos", items, render: videoItem, cats: CATS.videos, wrap: "videogrid", action: isSheikh() ? { href: "/new/video", label: "+ " + t("newVideo") } : null });
+  listPage({ titleKey: "videos", items, render: videoItem, side: secTicker("videos", items), cats: CATS.videos, wrap: "videogrid", action: isSheikh() ? { href: "/new/video", label: "+ " + t("newVideo") } : null });
 }
 async function viewVideo(id) {
   const v = await getOne("videos", id); if (!v) return main().innerHTML = `<div class="empty">${t("notFound")}</div>`;
@@ -575,7 +661,7 @@ const bookItem = b => `<a class="book" href="/books/${b.id}"><div class="cv">${c
 async function listBooks() {
   const items = await publishedBooks(1000);
   const c0 = new URLSearchParams(location.search).get("c");
-  listPage({ titleKey: "books", items, render: bookItem, cats: CATS.books, countKey: "bookCount", startCat: CATS.books.includes(c0) ? c0 : "all", wrap: "bookgrid", action: isBanned() ? null : { href: "/new/book", label: "+ " + t("publishBook") } });
+  listPage({ titleKey: "books", items, render: bookItem, side: secTicker("books", items), cats: CATS.books, countKey: "bookCount", startCat: CATS.books.includes(c0) ? c0 : "all", wrap: "bookgrid", action: isBanned() ? null : { href: "/new/book", label: "+ " + t("publishBook") } });
 }
 const subTag = c => c ? `<span class="tag soft">${t("sub_" + c)}</span>` : "";
 const isCloudPdf = u => /res\.cloudinary\.com\/.+\/image\/upload\/.+\.pdf(\?.*)?$/i.test(u || "");
@@ -791,7 +877,7 @@ async function pageBookForm(editId) {
 const threadItem = th => `<a class="item" href="/forum/${th.id}"><h3>${esc(th.title)}</h3><p>${excerpt(th.body, 120)}</p>${meta(th.name, th.createdAt, " " + catTag(th.category))}</a>`;
 async function listForum() {
   const items = (await latest("threads", 300)).filter(x => isAdmin() || !isHidden(x));
-  listPage({ titleKey: "forum", items, render: threadItem, cats: CATS.threads, action: isBanned() ? null : { href: "/new/thread", label: "+ " + t("newThread") } });
+  listPage({ titleKey: "forum", items, render: threadItem, side: secTicker("threads", items), cats: CATS.threads, action: isBanned() ? null : { href: "/new/thread", label: "+ " + t("newThread") } });
 }
 async function viewThread(id) {
   const th = await getOne("threads", id); if (!th) return main().innerHTML = `<div class="empty">${t("notFound")}</div>`;
@@ -812,10 +898,45 @@ const linkify = x => nl(x).replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target
 const qName = q => q.showName === false ? t("anonymous") : q.name;
 const fatwaItem = q => `<a class="item fatwa-item" href="/fatwa/${q.id}"><span class="qmark${q.num ? " qnum" : ""}">${q.num || "؟"}</span><div><h3>${esc(q.title || excerpt(q.body, 80))}</h3>
   <p>${excerpt(q.answer, 140)}</p>${meta(q.sheikhName ? t("answeredBy") + " " + q.sheikhName : "", q.answeredAt, " " + catTag(q.category))}</div></a>`;
+// رسمة لكل قسم من أقسام الفتاوى (بدل الصور)
+const FART = {
+  ibadat: '<path d="M60 18c10 8 16 16 16 26H44c0-10 6-18 16-26z"/><rect x="38" y="44" width="44" height="34" rx="2"/><path d="M54 78V62a6 6 0 0 1 12 0v16"/><path d="M24 78V40l4-6 4 6v38M88 78V40l4-6 4 6v38"/><path d="M18 78h84"/>',
+  muamalat: '<path d="M60 20v58M40 78h40"/><path d="M28 34h64"/><path d="M28 34 18 56h20zM92 34 82 56h20z"/><path d="M18 56a10 6 0 0 0 20 0M82 56a10 6 0 0 0 20 0"/><circle cx="60" cy="20" r="4"/>',
+  family: '<path d="M22 50 60 20l38 30"/><path d="M30 44v34h60V44"/><circle cx="50" cy="56" r="5"/><circle cx="70" cy="56" r="5"/><path d="M42 78c0-8 4-12 8-12s8 4 8 12M62 78c0-8 4-12 8-12s8 4 8 12"/>',
+  aqeedah: '<path d="M70 22a26 26 0 1 0 14 46 22 22 0 1 1-14-46z"/><path d="m82 30 2.6 5.4 5.9.9-4.3 4.1 1 5.9-5.2-2.8-5.2 2.8 1-5.9-4.3-4.1 5.9-.9z"/>',
+  other: '<path d="M20 28c14-4 28-2 40 6 12-8 26-10 40-6v48c-14-4-28-2-40 6-12-8-26-10-40-6z"/><path d="M60 34v48"/>'
+};
+const fatwaArt = c => `<div class="fart fart-${FART[c] ? c : "other"}"><svg viewBox="0 0 120 96" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">${FART[c] || FART.other}</svg><span>${t("cat_" + (FART[c] ? c : "other"))}</span></div>`;
+const fMeta = q => `<div class="fmeta"><span title="${t("date")}">📅 ${fmtDate(q.answeredAt)}</span><span title="${t("views")}">👁 ${fmtN(q.views)}</span><span title="${t("fatwaNo")}">☰ ${q.num || ""}</span></div>`;
+const fatwaCard = q => `<article class="fcard"><a href="/fatwa/${q.id}"><h3>${esc(q.title || excerpt(q.body, 80))}</h3></a>
+  <p>${excerpt(q.body, 230)} <a class="fmore" href="/fatwa/${q.id}">${t("more")}</a></p>${fMeta(q)}</article>`;
 async function listFatwa() {
   const items = await answeredFatwas(5000);
   items.forEach((q, i) => q.num = items.length - i);
-  listPage({ titleKey: "fatwa", countKey: "fatwaCount", items, render: fatwaItem, cats: CATS.questions, action: { href: "/ask", label: t("ask") } });
+  const feat = items.slice(0, 5);
+  const top = feat.length ? `<section class="fslider" id="fsl">${feat.map((q, i) => `<div class="fslide${i ? "" : " on"}">
+      <div class="fs-txt"><a href="/fatwa/${q.id}"><h2>${esc(q.title || excerpt(q.body, 80))}</h2></a><p>${excerpt(q.body, 420)} <a class="fmore" href="/fatwa/${q.id}">${t("more")}</a></p></div>
+      ${fatwaArt(q.category)}${fMeta(q)}</div>`).join("")}
+    <div class="fdots">${feat.map((_, i) => `<button class="${i ? "" : "on"}" data-i="${i}" aria-label="${i + 1}"></button>`).join("")}</div></section>` : "";
+  const side = `<section class="side-box"><h3 class="sb-h">${icon("fatwa", "ic sb-ic")}${t("searchFatwa")}</h3>
+      <form id="fsForm" class="fs-form"><div class="fs-in"><input name="q" type="search" placeholder="${t("searchWords")}"><button class="btn sm">🔍</button></div>
+        <div class="rads"><span><input type="radio" id="byT" name="by" value="text" checked><label for="byT">${t("byText")}</label></span><span><input type="radio" id="byN" name="by" value="num"><label for="byN">${t("byNumber")}</label></span></div></form></section>
+    <section class="side-box"><h3 class="sb-h">${icon("books", "ic sb-ic")}${t("topics")}</h3>
+      <div class="topic-grid"><button class="topic on" data-side-cat="all">📁 ${t("all")} <i>${items.length}</i></button>${CATS.questions.map(c => `<button class="topic" data-side-cat="${c}">📁 ${t("cat_" + c)} <i>${items.filter(q => q.category === c).length}</i></button>`).join("")}</div></section>
+    ${secTicker("questions", items, "latestFatwas")}`;
+  const ctl = listPage({ titleKey: "fatwa", countKey: "fatwaCount", items, render: fatwaCard, cats: CATS.questions, chipsHidden: true, top, side, action: { href: "/ask", label: t("ask") } });
+  $$("[data-side-cat]").forEach(b => b.onclick = () => ctl.setCat(b.dataset.sideCat));
+  $("#fsForm").onsubmit = e => {
+    e.preventDefault(); const v = e.target.q.value.trim();
+    if (e.target.by.value === "num") { const n = v.replace(/[٠-٩]/g, d => "٠١٢٣٤٥٦٧٨٩".indexOf(d)); const q = items.find(x => String(x.num) === n); return q ? go("/fatwa/" + q.id) : toast(t("noFatwaNum"), true); }
+    ctl.setQ(v);
+  };
+  const sl = $("#fsl"); if (sl && feat.length > 1) {
+    let i = 0, hold = false; const show = n => { i = n; $$(".fslide", sl).forEach((x, k) => x.classList.toggle("on", k === n)); $$(".fdots button", sl).forEach((x, k) => x.classList.toggle("on", k === n)); };
+    $$(".fdots button", sl).forEach(b => b.onclick = () => show(+b.dataset.i));
+    sl.onmouseenter = () => hold = true; sl.onmouseleave = () => hold = false;
+    const my = routeId, tm = setInterval(() => { if (my !== routeId || !document.body.contains(sl)) return clearInterval(tm); if (!hold) show((i + 1) % feat.length); }, 6000);
+  }
 }
 async function viewFatwa(id) {
   const q = await getOne("questions", id); if (!q) return main().innerHTML = `<div class="empty">${t("notFound")}</div>`;
@@ -824,7 +945,7 @@ async function viewFatwa(id) {
     <h1>${esc(q.title || t("question"))}</h1>
     <div class="qa q"><div class="qa-label">${t("question")}</div><div class="prose">${nl(q.body)}</div>${meta(qName(q), q.createdAt)}</div>
     ${done ? `<div class="qa a"><div class="qa-label">${t("answer")}</div><div class="prose">${linkify(q.answer)}</div>
-      <div class="meta">${t("answeredBy")} <b>${esc(q.sheikhName)}</b> · ${fmtDate(q.answeredAt)}</div></div>`
+      <div class="meta">${t("answeredBy")} <b>${esc(q.sheikhName)}</b> · ${fmtDate(q.answeredAt)}${q.views ? ` · 👁 ${fmtN(q.views)}` : ""}</div></div>`
       : `<div class="status pending">${t("pending")}</div>`}
     ${isSheikh() ? `<details class="edit-ans"${done ? "" : " open"}><summary>${done ? t("editAnswer") : t("publishAnswer")}</summary>
       <form class="form" id="ansForm"><textarea name="answer" rows="8" required>${esc(q.answer || "")}</textarea><button class="btn">${t("publishAnswer")}</button></form></details>` : ""}
@@ -833,7 +954,7 @@ async function viewFatwa(id) {
   bindDel("questions", id, "/fatwa");
   const af = $("#ansForm");
   if (af) af.onsubmit = async e => { e.preventDefault(); await answerQuestion(q, af.answer.value, q.title); viewFatwa(id); };
-  if (done) await comments($("#cm"), "questions", id);
+  if (done) { bumpOnce("questions", id, "views"); await comments($("#cm"), "questions", id); }
 }
 async function answerQuestion(q, answer, title) {
   answer = answer.trim(); if (!answer) return;
