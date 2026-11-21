@@ -1,5 +1,5 @@
-import { firebaseConfig, SITE, ADMIN_EMAILS, UPLOAD, CAPTCHA } from "./config.js?v=20261121d";
-import { I18N } from "./i18n.js?v=20261121d";
+import { firebaseConfig, SITE, ADMIN_EMAILS, UPLOAD, CAPTCHA } from "./config.js?v=20261121e";
+import { I18N } from "./i18n.js?v=20261121e";
 import { PAGES } from "./pages.js";
 import { DEFAULT_WORDS, findBad, hasLink, buildPattern, HIDE_AFTER_REPORTS, COOLDOWN_SEC, isDisposable, nameKey } from "./moderation.js";
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
@@ -584,7 +584,6 @@ async function listAudio() {
   main().innerHTML = withSide(`<div class="page-head"><h1>${t("audio")}</h1>${isSheikh() ? `<a class="btn" href="/new/audio">+ ${t("newAudio")}</a>` : ""}</div>
     <div class="toolbar"><div class="chips tabs">${["all", ...CATS.audios].map(c => `<a class="chip${c === cat ? " on" : ""}" href="/audio${c === "all" ? "" : "?c=" + c}">${t(c === "all" ? "allOf_audio" : "cat_" + c)}</a>`).join("")}</div></div>
     <section class="card sch-box"><div class="sch-head"><h2>${t("scholars")}</h2><input class="search" id="schQ" type="search" placeholder="${t("searchScholar")}"></div>
-      <div class="letters"><button class="on" data-l="">${t("all")}</button>${AR_LETTERS.map(l => `<button data-l="${l}">${l}</button>`).join("")}</div>
       <div class="sch-grid" id="schGrid"></div></section>
     <div class="block-head" style="margin-top:22px"><h2>${t("latestAudio")}</h2><span class="list-count">${t("audioCount")}: <b>${items.length}</b></span></div>
     <div class="list">${items.slice(0, 10).map(audioItem).join("") || `<div class="empty sm">${t("empty")}</div>`}</div>`,
@@ -595,7 +594,6 @@ async function listAudio() {
     $("#schGrid").innerHTML = f.length ? f.map(s => `<a class="sch" href="/audio/scholar/${encodeURIComponent(s.name)}${cat === "all" ? "" : "?c=" + cat}"><b>${esc(cleanSpeaker(s.name))}</b><small>🎧 ${t("materials")}: ${s.n}</small></a>`).join("") : `<div class="empty sm">${t("empty")}</div>`;
   };
   $("#schQ").oninput = e => { Q = e.target.value.trim(); draw(); };
-  $$(".letters button").forEach(b => b.onclick = () => { $$(".letters button").forEach(x => x.classList.remove("on")); b.classList.add("on"); L = b.dataset.l; draw(); });
   draw(); startTickers();
 }
 const pageScholars = () => { history.replaceState(null, "", "/audio"); return listAudio(); };
