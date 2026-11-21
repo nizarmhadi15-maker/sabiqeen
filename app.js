@@ -1,5 +1,5 @@
-import { firebaseConfig, SITE, ADMIN_EMAILS, UPLOAD, CAPTCHA } from "./config.js?v=20261121c";
-import { I18N } from "./i18n.js?v=20261121c";
+import { firebaseConfig, SITE, ADMIN_EMAILS, UPLOAD, CAPTCHA } from "./config.js?v=20261121d";
+import { I18N } from "./i18n.js?v=20261121d";
 import { PAGES } from "./pages.js";
 import { DEFAULT_WORDS, findBad, hasLink, buildPattern, HIDE_AFTER_REPORTS, COOLDOWN_SEC, isDisposable, nameKey } from "./moderation.js";
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
@@ -569,36 +569,36 @@ async function viewPost(id) {
 // ---------- audio ----------
 const audioItem = a => `<div class="item audio-item"><div class="ai-head">${icon("audio", "ic sm")}<div><a href="/audio/${a.id}"><h3>${esc(a.title)}</h3></a>
   <div class="meta"><a class="spk" href="/audio/scholar/${encodeURIComponent(a.speaker || "")}">${esc(a.speaker || "")}</a> ${catTag(a.category)}${a.plays ? ` <span class="plays">🎧 ${fmtN(a.plays)}</span>` : ""}</div></div></div>${safeUrl(a.url) ? `<audio controls preload="none" data-id="${a.id}" src="${safeUrl(a.url)}"></audio>` : ""}</div>`;
-const audioTabs = on => `<a class="chip${on === "sch" ? " on" : ""}" href="/audio/scholars">👥 ${t("scholars")}</a>`;
-async function listAudio() {
-  const [items, top] = await Promise.all([latest("audios", 1000), topPlayed()]);
-  const c0 = new URLSearchParams(location.search).get("c");
-  listPage({ titleKey: "audio", items, render: audioItem, cats: CATS.audios, countKey: "audioCount", tabs: audioTabs(), startCat: CATS.audios.includes(c0) ? c0 : "all",
-    side: secTicker("audios", items) + playedBox(top), action: isSheikh() ? { href: "/new/audio", label: "+ " + t("newAudio") } : null });
-}
+// الصوتيات: مربعات العلماء في كل تبويب (مثل إسلام ويب)
+const AR_LETTERS = "ا ب ت ث ج ح خ د ذ ر ز س ش ص ض ط ظ ع غ ف ق ك ل م ن ه و ي".split(" ");
 function scholarsOf(items) {
   const m = new Map();
   items.forEach(a => { const k = (a.speaker || "").trim(); if (!k) return; const o = m.get(k) || { name: k, n: 0, plays: 0 }; o.n++; o.plays += a.plays || 0; m.set(k, o); });
   return [...m.values()].sort((a, b) => cleanSpeaker(a.name).localeCompare(cleanSpeaker(b.name), "ar"));
 }
-const AR_LETTERS = "ا ب ت ث ج ح خ د ذ ر ز س ش ص ض ط ظ ع غ ف ق ك ل م ن ه و ي".split(" ");
-async function pageScholars() {
-  const [items, top] = await Promise.all([latest("audios", 1000), topPlayed()]);
+async function listAudio() {
+  const [all, top] = await Promise.all([latest("audios", 1000), topPlayed()]);
+  const c0 = new URLSearchParams(location.search).get("c"), cat = CATS.audios.includes(c0) ? c0 : "all";
+  const items = cat === "all" ? all : all.filter(a => a.category === cat);
   const list = scholarsOf(items);
-  main().innerHTML = withSide(`<div class="page-head"><h1>${t("audio")}</h1></div>
-    <div class="toolbar"><div class="chips tabs"><a class="chip" href="/audio">${t("allOf_audio")}</a>${CATS.audios.map(c => `<a class="chip" href="/audio?c=${c}">${t("cat_" + c)}</a>`).join("")}${audioTabs("sch")}</div></div>
+  main().innerHTML = withSide(`<div class="page-head"><h1>${t("audio")}</h1>${isSheikh() ? `<a class="btn" href="/new/audio">+ ${t("newAudio")}</a>` : ""}</div>
+    <div class="toolbar"><div class="chips tabs">${["all", ...CATS.audios].map(c => `<a class="chip${c === cat ? " on" : ""}" href="/audio${c === "all" ? "" : "?c=" + c}">${t(c === "all" ? "allOf_audio" : "cat_" + c)}</a>`).join("")}</div></div>
     <section class="card sch-box"><div class="sch-head"><h2>${t("scholars")}</h2><input class="search" id="schQ" type="search" placeholder="${t("searchScholar")}"></div>
       <div class="letters"><button class="on" data-l="">${t("all")}</button>${AR_LETTERS.map(l => `<button data-l="${l}">${l}</button>`).join("")}</div>
-      <div class="sch-grid" id="schGrid"></div></section>`, secTicker("audios", items) + playedBox(top));
+      <div class="sch-grid" id="schGrid"></div></section>
+    <div class="block-head" style="margin-top:22px"><h2>${t("latestAudio")}</h2><span class="list-count">${t("audioCount")}: <b>${items.length}</b></span></div>
+    <div class="list">${items.slice(0, 10).map(audioItem).join("") || `<div class="empty sm">${t("empty")}</div>`}</div>`,
+    secTicker("audios", items.length ? items : all) + playedBox(top));
   let L = "", Q = "";
   const draw = () => {
     const f = list.filter(s => { const n = normAr(cleanSpeaker(s.name)); return (!L || n.startsWith(L)) && (!Q || normAr(s.name).includes(normAr(Q))); });
-    $("#schGrid").innerHTML = f.length ? f.map(s => `<a class="sch" href="/audio/scholar/${encodeURIComponent(s.name)}"><b>${esc(cleanSpeaker(s.name))}</b><small>🎧 ${t("materials")}: ${s.n}</small></a>`).join("") : `<div class="empty sm">${t("empty")}</div>`;
+    $("#schGrid").innerHTML = f.length ? f.map(s => `<a class="sch" href="/audio/scholar/${encodeURIComponent(s.name)}${cat === "all" ? "" : "?c=" + cat}"><b>${esc(cleanSpeaker(s.name))}</b><small>🎧 ${t("materials")}: ${s.n}</small></a>`).join("") : `<div class="empty sm">${t("empty")}</div>`;
   };
   $("#schQ").oninput = e => { Q = e.target.value.trim(); draw(); };
   $$(".letters button").forEach(b => b.onclick = () => { $$(".letters button").forEach(x => x.classList.remove("on")); b.classList.add("on"); L = b.dataset.l; draw(); });
   draw(); startTickers();
 }
+const pageScholars = () => { history.replaceState(null, "", "/audio"); return listAudio(); };
 async function pageScholar(name) {
   const [all, top] = await Promise.all([latest("audios", 1000), topPlayed()]);
   const items = all.filter(a => (a.speaker || "").trim() === name);
@@ -606,7 +606,7 @@ async function pageScholar(name) {
   const plays = items.reduce((s, a) => s + (a.plays || 0), 0);
   const cats = CATS.audios.filter(c => items.some(a => a.category === c));
   const share = encodeURIComponent(location.href);
-  main().innerHTML = withSide(`<div class="crumb"><a href="/audio">${t("audio")}</a> » <a href="/audio/scholars">${t("scholars")}</a></div>
+  main().innerHTML = withSide(`<div class="crumb"><a href="/audio">${t("audio")}</a> » <a href="/audio">${t("scholars")}</a></div>
     <section class="card sch-page"><div class="sp-t">${t("scholarPage")}</div><h1>${esc(cleanSpeaker(name))}</h1>
       <div class="sp-stats"><span>${t("materials")}: <b>${items.length}</b></span><span>🎧 ${t("totalPlays")}: <b>${fmtN(plays)}</b></span>
         <a class="sh wa" target="_blank" rel="noopener" href="https://wa.me/?text=${share}">WhatsApp</a><a class="sh fb" target="_blank" rel="noopener" href="https://www.facebook.com/sharer/sharer.php?u=${share}">Facebook</a><a class="sh x" target="_blank" rel="noopener" href="https://x.com/intent/post?url=${share}">X</a></div>
@@ -614,7 +614,9 @@ async function pageScholar(name) {
     <div class="list" id="items"></div>`, secTicker("audios", items, "scholarLatest") + playedBox(top));
   const draw = f => $("#items").innerHTML = items.filter(a => f === "all" || a.category === f).map(audioItem).join("");
   $$(".folder").forEach(b => b.onclick = () => { $$(".folder").forEach(x => x.classList.remove("on")); b.classList.add("on"); draw(b.dataset.f); });
-  draw("all"); startTickers();
+  const c0 = new URLSearchParams(location.search).get("c"), pre = cats.includes(c0) ? c0 : "all";
+  $$(".folder").forEach(x => x.classList.toggle("on", x.dataset.f === pre));
+  draw(pre); startTickers();
 }
 async function viewAudio(id) {
   const a = await getOne("audios", id); if (!a) return main().innerHTML = `<div class="empty">${t("notFound")}</div>`;
