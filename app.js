@@ -1,5 +1,5 @@
-import { firebaseConfig, SITE, ADMIN_EMAILS, UPLOAD, CAPTCHA } from "./config.js?v=20261119a";
-import { I18N } from "./i18n.js?v=20261119a";
+import { firebaseConfig, SITE, ADMIN_EMAILS, UPLOAD, CAPTCHA } from "./config.js?v=20261121a";
+import { I18N } from "./i18n.js?v=20261121a";
 import { PAGES } from "./pages.js";
 import { DEFAULT_WORDS, findBad, hasLink, buildPattern, HIDE_AFTER_REPORTS, COOLDOWN_SEC, isDisposable, nameKey } from "./moderation.js";
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
@@ -62,9 +62,12 @@ const todayId = (d = new Date()) => d.toISOString().slice(0, 10);
 function bump(field) { try { setDoc(doc(db, "stats", todayId()), { [field]: increment(1) }, { merge: true }).catch(() => {}); } catch {} }
 function trackView(page) {
   try {
-    const day = todayId(), tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "", cc = TZ_CC[tz] || "XX";
+    const day = todayId(), tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "";
+    const bot = navigator.webdriver || /bot|crawl|spider|slurp|headless|lighthouse|pagespeed|preview|python|curl|wget|facebookexternalhit|whatsapp|telegram/i.test(navigator.userAgent);
+    const cc = bot ? "BOT" : TZ_CC[tz] || (/^(UTC|Etc\/|GMT|Universal|Zulu)/.test(tz) ? "UTC" : "XX");
     let isNew = false; try { if (localStorage.getItem("seen") !== day) { localStorage.setItem("seen", day); isNew = true; } } catch {}
     const dev = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent) ? "mobile" : "desktop";
+    if (bot) { setDoc(doc(db, "stats", day), { countries: { BOT: increment(1) } }, { merge: true }).catch(() => {}); return; }
     const data = { views: increment(1), pages: { [page || "home"]: increment(1) } };
     if (isNew) Object.assign(data, { visitors: increment(1), countries: { [cc]: increment(1) }, devices: { [dev]: increment(1) } });
     setDoc(doc(db, "stats", day), data, { merge: true }).catch(() => {});
@@ -605,7 +608,7 @@ async function approveBook(id) {
 }
 
 // ---------- publisher info (required before publishing a book) ----------
-const countryList = () => [...new Set([...Object.keys(CC_NAME), ...Object.values(TZ_CC)])].filter(c => c !== "JRS" && c !== "XX")
+const countryList = () => [...new Set([...Object.keys(CC_NAME), ...Object.values(TZ_CC)])].filter(c => !["JRS", "XX", "UTC"].includes(c))
   .sort((a, b) => ccName(a).localeCompare(ccName(b), lang)).concat("XX");
 const pubReady = () => !!(profile?.publisher && profile?.phone && profile?.country && profile?.city && profile?.birth && profile?.gender);
 async function pagePublisher() {
@@ -1064,11 +1067,12 @@ const CC_NAME = { PS: ["فلسطين", "Palestine", "🇵🇸"], JRS: ["توقي
   BE: ["بلجيكا", "Belgium", "🇧🇪"], SE: ["السويد", "Sweden", "🇸🇪"], NO: ["النرويج", "Norway", "🇳🇴"], DK: ["الدنمارك", "Denmark", "🇩🇰"], AT: ["النمسا", "Austria", "🇦🇹"], CH: ["سويسرا", "Switzerland", "🇨🇭"],
   RU: ["روسيا", "Russia", "🇷🇺"], US: ["أمريكا", "USA", "🇺🇸"], CA: ["كندا", "Canada", "🇨🇦"], BR: ["البرازيل", "Brazil", "🇧🇷"], MX: ["المكسيك", "Mexico", "🇲🇽"], AU: ["أستراليا", "Australia", "🇦🇺"],
   NG: ["نيجيريا", "Nigeria", "🇳🇬"], KE: ["كينيا", "Kenya", "🇰🇪"], ZA: ["جنوب أفريقيا", "South Africa", "🇿🇦"], SN: ["السنغال", "Senegal", "🇸🇳"], JP: ["اليابان", "Japan", "🇯🇵"], CN: ["الصين", "China", "🇨🇳"],
-  XX: ["دول أخرى", "Other", "🌍"] };
+  UTC: ["توقيت عالمي UTC (خوادم غالباً)", "UTC time (mostly servers)", "🖥️"], XX: ["غير معروف", "Unknown", "🌍"] };
 const ccFlag = c => /^[A-Z]{2}$/.test(c) ? String.fromCodePoint(...[...c].map(x => 0x1F1A5 + x.charCodeAt(0))) : "🌍";
 const _dn = {}; const regionName = (c, l) => { try { return (_dn[l] ||= new Intl.DisplayNames([l], { type: "region" })).of(c); } catch { return c; } };
 const ccName = c => CC_NAME[c] ? CC_NAME[c][lang === "ar" ? 0 : 1] : /^[A-Z]{2}$/.test(c) ? regionName(c, lang === "ar" ? "ar" : "en") : CC_NAME.XX[lang === "ar" ? 0 : 1];
 const ccLabel = c => `${CC_NAME[c] ? CC_NAME[c][2] : ccFlag(c)} ${ccName(c)}`;
+const ccLabelHtml = c => /^[A-Z]{2}$/.test(c) ? `<img class="flag" src="https://flagcdn.com/w40/${c.toLowerCase()}.png" alt="" loading="lazy" onerror="this.remove()"> ${esc(ccName(c))}` : esc(ccLabel(c));
 async function pageStats() {
   if (!requireLogin()) return; if (!isAdmin()) return denied();
   let range = +(sessionStorage.getItem("statsRange") || 28);
@@ -1089,8 +1093,8 @@ async function pageStats() {
     const W = 760, H = 180, bw = W / cur.length;
     const bars = cur.map((d, i) => { const h = (d.views || 0) / maxV * (H - 20), hv = (d.visitors || 0) / maxV * (H - 20);
       return `<g><title>${d.id}: ${d.views || 0} ${t("statViews")} · ${d.visitors || 0} ${t("statVisitors")}</title><rect x="${i * bw + 1}" y="${H - h}" width="${Math.max(1, bw - 2)}" height="${h}" rx="2" class="bar"/><rect x="${i * bw + bw * .25}" y="${H - hv}" width="${Math.max(1, bw * .5 - 1)}" height="${hv}" rx="2" class="bar2"/></g>`; }).join("");
-    const listBox = (rows, label, total) => rows.length ? rows.slice(0, 10).map(([k, v]) => `<div class="srow"><span>${label(k)}</span><b>${v}</b><i style="width:${Math.round(v / total * 100)}%"></i></div>`).join("") : `<div class="empty sm">${t("noData")}</div>`;
-    const cs = merge(cur, "countries"), ps = merge(cur, "pages"), ds = merge(cur, "devices");
+    const listBox = (rows, label, total, max = 10) => rows.length ? rows.slice(0, max).map(([k, v]) => `<div class="srow"><span>${label(k)}</span><b>${v}</b><i style="width:${Math.round(v / total * 100)}%"></i></div>`).join("") : `<div class="empty sm">${t("noData")}</div>`;
+    const csAll = merge(cur, "countries"), bots = (csAll.find(([k]) => k === "BOT") || [0, 0])[1], cs = csAll.filter(([k]) => k !== "BOT"), ps = merge(cur, "pages"), ds = merge(cur, "devices");
     const vTot = sum(cur, "visitors") || 1, pTot = sum(cur, "views") || 1;
     main().innerHTML = `<div class="page-head"><h1>${icon("stats", "ic")} ${t("stats")}</h1>
         <div class="chips">${[7, 28, 90].map(r => `<button class="chip${r === range ? " on" : ""}" data-r="${r}">${t("lastDays").replace("{n}", r)}</button>`).join("")}</div></div>
@@ -1100,7 +1104,7 @@ async function pageStats() {
         <div class="chart-x"><span>${cur[0].id}</span><span>${cur[cur.length - 1].id}</span></div>
         <div class="legend"><span><i class="bar"></i>${t("statViews")}</span><span><i class="bar2"></i>${t("statVisitors")}</span></div></div>
       <div class="stats-grid">
-        <div class="card"><h3>${t("statCountries")}</h3>${listBox(cs, ccLabel, vTot)}</div>
+        <div class="card"><h3>${t("statCountries")} <small class="muted">(${cs.filter(([k]) => /^[A-Z]{2}$/.test(k)).length})</small></h3><div class="cscroll">${listBox(cs, ccLabelHtml, vTot, 60)}</div>${bots ? `<p class="muted small-note">🤖 ${t("statBots")}: <b>${bots}</b></p>` : ""}</div>
         <div class="card"><h3>${t("statPages")}</h3>${listBox(ps, k => t(k) || k, pTot)}</div>
         <div class="card"><h3>${t("statDevices")}</h3>${listBox(ds, k => k === "mobile" ? "📱 " + t("mobile") : "💻 " + t("desktop"), vTot)}</div>
         <div class="card"><h3>${t("statContent")}</h3>
