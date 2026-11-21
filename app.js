@@ -1,5 +1,5 @@
-import { firebaseConfig, SITE, ADMIN_EMAILS, UPLOAD, CAPTCHA } from "./config.js?v=20261121a";
-import { I18N } from "./i18n.js?v=20261121a";
+import { firebaseConfig, SITE, ADMIN_EMAILS, UPLOAD, CAPTCHA } from "./config.js?v=20261121b";
+import { I18N } from "./i18n.js?v=20261121b";
 import { PAGES } from "./pages.js";
 import { DEFAULT_WORDS, findBad, hasLink, buildPattern, HIDE_AFTER_REPORTS, COOLDOWN_SEC, isDisposable, nameKey } from "./moderation.js";
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
@@ -19,7 +19,9 @@ const db = getFirestore(fb);
 
 // ---------- state & helpers ----------
 let user = null, profile = null, authReady = false;
-let lang = localStorage.getItem("lang") || SITE.defaultLang || "ar";
+// اللغة: المحفوظة، ثم /en، ثم لغة المتصفح (عربي ← عربي، غير ذلك ← إنجليزي)
+const browserLang = () => { const ls = navigator.languages?.length ? navigator.languages : [navigator.language || ""]; return ls.some(l => /^ar\b/i.test(l)) ? "ar" : "en"; };
+let lang = /^\/en(\/|$)/.test(location.pathname) ? "en" : localStorage.getItem("lang") || browserLang() || SITE.defaultLang || "ar";
 const t = k => I18N[lang][k] ?? I18N.ar[k] ?? k;
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -181,7 +183,7 @@ function renderShell() {
        <a class="me" href="/profile" title="${esc(myName())}">${avatar(myName(), myPhoto())}</a>`
     : `<a class="btn sm" href="/login">${t("login")}</a>`;
 }
-$("#langBtn").onclick = () => { lang = lang === "ar" ? "en" : "ar"; localStorage.setItem("lang", lang); renderShell(); route(); };
+$("#langBtn").onclick = () => { lang = lang === "ar" ? "en" : "ar"; localStorage.setItem("lang", lang); if (/^\/en(\/|$)/.test(location.pathname)) history.replaceState(null, "", lang === "en" ? "/en/" : "/"); renderShell(); route(); };
 $("#menuBtn").onclick = () => document.body.classList.toggle("nav-open");
 document.addEventListener("click", e => {
   const tg = e.target.closest(".dd-tog");
@@ -196,7 +198,8 @@ let routeId = 0;
 async function route() {
   const my = ++routeId;
   document.body.classList.remove("nav-open");
-  const [p, id, extra] = location.pathname.replace(/\/index\.html$/, "").split("/").filter(Boolean).map(decodeURIComponent);
+  let [p, id, extra] = location.pathname.replace(/\/index\.html$/, "").split("/").filter(Boolean).map(decodeURIComponent);
+  if (p === "en") { [p, id, extra] = [id, extra]; if (lang !== "en") { lang = "en"; renderShell(); } }
   $$("#nav a").forEach(a => a.classList.toggle("on", a.dataset.k === (p || "home") || (p === "fatwa" && a.dataset.k === "fatwa")));
   main().innerHTML = `<div class="loading"><span class="spin"></span>${t("loading")}</div>`;
   window.scrollTo(0, 0);
