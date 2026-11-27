@@ -420,4 +420,4 @@ small.green{color:var(--teal);font-weight:500}
 .src-bar{background:#eef6f4;border:1px solid #cfe5df;color:var(--navy);border-radius:10px;padding:8px 14px;margin:0 0 14px;font-size:.95rem}
 .src-bar a{color:var(--navy);font-weight:700;text-decoration:underline}
 .book{position:relative}
-.book .bsrc{display:block;font-size:.72rem;color:var(--navy);background:#eef6f4;border-radius:6px;padding:2px 6px;margin-bottom:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.book .bsrc{display:block;text-align:center;font-size:.72rem;color:var(--navy);background:#eef6f4;border-radius:6px;padding:2px 6px;margin-bottom:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}

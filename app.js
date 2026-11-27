@@ -1,5 +1,5 @@
-import { firebaseConfig, SITE, ADMIN_EMAILS, UPLOAD, CAPTCHA } from "./config.js?v=20261127b";
-import { I18N } from "./i18n.js?v=20261127b";
+import { firebaseConfig, SITE, ADMIN_EMAILS, UPLOAD, CAPTCHA } from "./config.js?v=20261127c";
+import { I18N } from "./i18n.js?v=20261127c";
 import { PAGES } from "./pages.js";
 import { DEFAULT_WORDS, findBad, hasLink, buildPattern, HIDE_AFTER_REPORTS, COOLDOWN_SEC, isDisposable, nameKey } from "./moderation.js";
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
@@ -657,7 +657,7 @@ async function viewVideo(id) {
 
 // ---------- books ----------
 const cover = b => safeUrl(b.cover) ? `<img src="${safeUrl(b.cover)}" alt="" loading="lazy">` : `<div class="nocover">${icon("books")}<span>${esc(b.title)}</span></div>`;
-const bookItem = b => `<a class="book" href="/books/${b.id}">${b.source ? `<span class="bsrc">${t("bookSource")}: ${esc(b.source)}</span>` : ""}<div class="cv">${cover(b)}</div><h3>${esc(b.title)}</h3><small>${esc(b.author || "")}</small></a>`;
+const bookItem = b => `<a class="book" href="/books/${b.id}">${b.source ? `<span class="bsrc">${t("bookSource")}: ${esc(b.source.split(" (")[0])}</span>` : ""}<div class="cv">${cover(b)}</div><h3>${esc(b.title)}</h3><small>${esc(b.author || "")}</small></a>`;
 async function listBooks() {
   const items = await publishedBooks(1000);
   const c0 = new URLSearchParams(location.search).get("c");
