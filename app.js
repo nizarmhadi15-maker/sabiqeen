@@ -1,5 +1,5 @@
-import { firebaseConfig, SITE, ADMIN_EMAILS, UPLOAD, CAPTCHA } from "./config.js?v=20261121e";
-import { I18N } from "./i18n.js?v=20261121e";
+import { firebaseConfig, SITE, ADMIN_EMAILS, UPLOAD, CAPTCHA } from "./config.js?v=20261127b";
+import { I18N } from "./i18n.js?v=20261127b";
 import { PAGES } from "./pages.js";
 import { DEFAULT_WORDS, findBad, hasLink, buildPattern, HIDE_AFTER_REPORTS, COOLDOWN_SEC, isDisposable, nameKey } from "./moderation.js";
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
@@ -657,7 +657,7 @@ async function viewVideo(id) {
 
 // ---------- books ----------
 const cover = b => safeUrl(b.cover) ? `<img src="${safeUrl(b.cover)}" alt="" loading="lazy">` : `<div class="nocover">${icon("books")}<span>${esc(b.title)}</span></div>`;
-const bookItem = b => `<a class="book" href="/books/${b.id}"><div class="cv">${cover(b)}</div><h3>${esc(b.title)}</h3><small>${esc(b.author || "")}</small></a>`;
+const bookItem = b => `<a class="book" href="/books/${b.id}">${b.source ? `<span class="bsrc">${t("bookSource")}: ${esc(b.source)}</span>` : ""}<div class="cv">${cover(b)}</div><h3>${esc(b.title)}</h3><small>${esc(b.author || "")}</small></a>`;
 async function listBooks() {
   const items = await publishedBooks(1000);
   const c0 = new URLSearchParams(location.search).get("c");
@@ -674,6 +674,7 @@ async function viewBook(id) {
   const x = b.extra || {}, extraRows = [["pages", x.pages], ["house", x.house], ["year", x.year], ["edition", x.edition]].filter(r => r[1]);
   main().innerHTML = `<article class="card article book-view"><div class="crumb"><a href="/books">${t("books")}</a></div>
     ${pending ? `<div class="verify-box"><p>${t("bookPending")}</p>${isSheikh() ? `<button class="btn sm" id="apBtn">${t("approve")}</button>` : ""}</div>` : ""}
+    ${b.source ? `<div class="src-bar">📚 ${t("bookSource")}: ${safeUrl(b.sourceUrl) ? `<a href="${safeUrl(b.sourceUrl)}" target="_blank" rel="noopener">${esc(b.source)}</a>` : `<b>${esc(b.source)}</b>`}</div>` : ""}
     <div class="bv"><div class="cv">${cover(b)}</div><div>
       <h1>${esc(b.title)}</h1><div class="meta">${t("authorBy")} <b>${esc(b.author || "")}</b> ${catTag(b.category)} ${subTag(b.subcat)}</div>
       <table class="binfo">${b.lang ? `<tr><th>${t("bookLang")}</th><td>${t("lang_" + b.lang)}</td></tr>` : ""}
@@ -779,7 +780,9 @@ async function pageBookForm(editId) {
         <div class="pdftools" id="pdfTools" hidden><b id="pdfSize"></b>
           <select id="cmpLevel" aria-label="${t("compressBtn")}"><option value="ebook">${t("cmpMid")}</option><option value="screen">${t("cmpStrong")}</option></select>
           <button type="button" class="btn ghost sm" id="cmpBtn">🗜 ${t("compressBtn")}</button><button type="button" class="btn sm" id="upNow">⬆ ${t("uploadBtn")}</button></div>
-        <div class="upbar"><i id="bkBar"></i></div><small id="bkMsg" class="muted">${t("bookFileHint")}</small></div>
+        <div class="upbar"><i id="bkBar"></i></div><small id="bkMsg" class="muted">${t("bookFileHint")}</small>
+        ${isSheikh() ? `<label>${t("orFileUrl")} <small class="green">${t("optional")}</small><input name="fileUrlIn" type="url" dir="ltr" maxlength="1500" placeholder="https://"></label>` : ""}</div>
+      ${isSheikh() ? `<div class="grid2"><label>${t("bookSource")} <small class="green">${t("optional")}</small><input name="source" maxlength="120" value="${v("source")}"></label><label>${t("bookSourceUrl")} <small class="green">${t("optional")}</small><input name="sourceUrl" type="url" dir="ltr" maxlength="500" value="${v("sourceUrl")}"></label></div>` : ""}
       <label class="check"><input type="checkbox" id="exTog"${Object.values(x).some(Boolean) ? " checked" : ""}> <span>${t("extraQ")} <small class="green">${t("optional")}</small></span></label>
       <div class="grid2 extra"${Object.values(x).some(Boolean) ? "" : " hidden"}>
         <label>${t("pages")}<input name="pages" type="number" min="1" max="100000" value="${esc(x.pages || "")}"></label>
@@ -854,12 +857,15 @@ async function pageBookForm(editId) {
     const g = k => String(F[k]?.value || "").trim();
     const data = { title: g("title"), desc: g("desc"), isAuthor: g("isAuthor"), lang: g("lang"), author: g("author"), category: g("category"), subcat: g("subcat"), readOnly: F.readOnly.checked };
     if (data.desc.length < 50) return toast(t("descShort"), true);
+    const fu = isSheikh() && /^https:\/\//i.test(g("fileUrlIn")) ? g("fileUrlIn") : "";
+    if (fu) { fileUrl = fu; fileType = /\.docx?(\?.*)?$/i.test(fu) ? "doc" : "pdf"; }
     if (!fileUrl) return toast(t("fileRequired"), true);
     if (!F.agree.checked) return toast(t("mustAgree"), true);
     const bad = isSheikh() ? null : (findBad([data.title, data.desc, data.author].join(" "), MOD_WORDS) ? t("badWords") : hasLink(data.title + " " + data.desc) ? t("noLinks") : null);
     if (bad) return toast(bad, true);
     data.extra = $("#exTog").checked ? { pages: g("pages"), house: g("house"), year: g("year"), edition: g("edition") } : {};
     data.url = fileUrl; data.fileType = fileType;
+    if (isSheikh()) { data.source = g("source"); data.sourceUrl = g("sourceUrl"); }
     data.cover = coverUrl || (isCloudPdf(fileUrl) ? fileUrl.replace("/image/upload/", "/image/upload/pg_1,c_limit,w_600,q_auto/").replace(/\.pdf(\?.*)?$/i, ".jpg") : "");
     save.disabled = true;
     try {
